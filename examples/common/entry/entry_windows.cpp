@@ -7,7 +7,7 @@
 
 #if ENTRY_CONFIG_USE_NATIVE && BX_PLATFORM_WINDOWS
 
-#include <bgfx/bgfxplatform.h>
+#include <bgfx/platform.h>
 
 #include <bx/uint32_t.h>
 #include <bx/thread.h>
@@ -30,6 +30,15 @@
 
 namespace entry
 {
+	///
+	inline void winSetHwnd(::HWND _window)
+	{
+		bgfx::PlatformData pd;
+		memset(&pd, 0, sizeof(pd) );
+		pd.nwh = _window;
+		bgfx::setPlatformData(pd);
+	}
+
 	typedef DWORD (WINAPI* PFN_XINPUT_GET_STATE)(DWORD dwUserIndex, XINPUT_STATE* pState);
 	typedef void  (WINAPI* PFN_XINPUT_ENABLE)(BOOL enable); // 1.4+
 
@@ -434,13 +443,13 @@ namespace entry
 
 		int32_t run(int _argc, char** _argv)
 		{
-			SetDllDirectory(".");
+			SetDllDirectoryA(".");
 
 			s_xinput.init();
 
 			HINSTANCE instance = (HINSTANCE)GetModuleHandle(NULL);
 
-			WNDCLASSEX wnd;
+			WNDCLASSEXA wnd;
 			memset(&wnd, 0, sizeof(wnd) );
 			wnd.cbSize = sizeof(wnd);
 			wnd.style = CS_HREDRAW | CS_VREDRAW;
@@ -471,7 +480,7 @@ namespace entry
 				| ENTRY_WINDOW_FLAG_FRAME
 				;
 
-			bgfx::winSetHwnd(m_hwnd[0]);
+			winSetHwnd(m_hwnd[0]);
 
 			adjust(m_hwnd[0], ENTRY_DEFAULT_WIDTH, ENTRY_DEFAULT_HEIGHT, true);
 			clear(m_hwnd[0]);
@@ -551,10 +560,15 @@ namespace entry
 				case WM_USER_WINDOW_DESTROY:
 					{
 						WindowHandle handle = { (uint16_t)_wparam };
-						PostMessageA(m_hwnd[_wparam], WM_CLOSE, 0, 0);
 						m_eventQueue.postWindowEvent(handle);
 						DestroyWindow(m_hwnd[_wparam]);
 						m_hwnd[_wparam] = 0;
+
+						if (0 == handle.idx)
+						{
+							m_exit = true;
+							m_eventQueue.postExitEvent();
+						}
 					}
 					break;
 
@@ -606,15 +620,7 @@ namespace entry
 
 				case WM_QUIT:
 				case WM_CLOSE:
-					if (_hwnd == m_hwnd[0])
-					{
-						m_exit = true;
-						m_eventQueue.postExitEvent();
-					}
-					else
-					{
-						destroyWindow(findHandle(_hwnd) );
-					}
+					destroyWindow(findHandle(_hwnd) );
 					// Don't process message. Window will be destroyed later.
 					return 0;
 
