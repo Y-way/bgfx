@@ -1,5 +1,5 @@
 --
--- Copyright 2010-2016 Branimir Karadzic. All rights reserved.
+-- Copyright 2010-2017 Branimir Karadzic. All rights reserved.
 -- License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
 --
 
@@ -37,12 +37,21 @@ project "texturec"
 		path.join(BGFX_DIR, "tools/texturec/**.h"),
 	}
 
+	links {
+		"bx",
+	}
+
 	configuration { "mingw-*" }
 		targetextension ".exe"
 
 	configuration { "osx" }
 		links {
 			"Cocoa.framework",
+		}
+
+	configuration { "vs20* or mingw*" }
+		links {
+			"psapi",
 		}
 
 	configuration {}

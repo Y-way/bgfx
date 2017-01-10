@@ -1,10 +1,10 @@
 /*
- * Copyright 2011-2016 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #include "shaderc.h"
-#include <bx/tokenizecmd.h>
+#include <bx/commandline.h>
 
 #define MAX_TAGS 256
 extern "C"
@@ -700,7 +700,7 @@ namespace bgfx
 
 		fprintf(stderr
 			, "shaderc, bgfx shader compiler tool\n"
-			  "Copyright 2011-2016 Branimir Karadzic. All rights reserved.\n"
+			  "Copyright 2011-2017 Branimir Karadzic. All rights reserved.\n"
 			  "License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause\n\n"
 			);
 

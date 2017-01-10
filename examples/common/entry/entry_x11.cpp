@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2016 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -13,6 +13,8 @@
 #include <X11/Xlib.h> // will include X11 which #defines None... Don't mess with order of includes.
 #include <X11/Xutil.h>
 #include <bgfx/platform.h>
+
+#include <unistd.h> // syscall
 
 #undef None
 #include <bx/thread.h>
