@@ -110,7 +110,7 @@ struct Emitter
 //		if (ImGui::CollapsingHeader("General") )
 		{
 			if (ImGui::Combo("Shape", (int*)&m_shape, s_shapeNames, BX_COUNTOF(s_shapeNames) )
-					||  ImGui::Combo("Direction", (int*)&m_direction, s_directionName, BX_COUNTOF(s_directionName) ) )
+			||  ImGui::Combo("Direction", (int*)&m_direction, s_directionName, BX_COUNTOF(s_directionName) ) )
 			{
 				psDestroyEmitter(m_handle);
 				m_handle = psCreateEmitter(m_shape, m_direction, 1024);
@@ -305,7 +305,7 @@ class Particles : public entry::AppI
 
 			// Use debug font to print information about this example.
 			bgfx::dbgTextClear();
-			bgfx::dbgTextPrintf(0, 1, 0x4f, "bgfx/examples/xx-particles");
+			bgfx::dbgTextPrintf(0, 1, 0x4f, "bgfx/examples/32-particles");
 			bgfx::dbgTextPrintf(0, 2, 0x6f, "Description: Particles.");
 			bgfx::dbgTextPrintf(0, 3, 0x0f, "Frame: % 7.3f[ms]", double(frameTime)*toMs);
 
@@ -393,13 +393,11 @@ class Particles : public entry::AppI
 
 			if (showBounds)
 			{
-//				Aabb aabb;
-//				toAabb(aabb, tvb.data, tvb.size/tvb.stride, tvb.stride);
-
-//				ddSetColor(0xff0000ff);
-//				ddDraw(aabb);
+				Aabb aabb;
+				psGetAabb(m_emitter[currentEmitter].m_handle, aabb);
+				ddSetColor(0xff0000ff);
+				ddDraw(aabb);
 			}
-
 
 			ddEnd();
 
