@@ -2539,7 +2539,7 @@ namespace bgfx { namespace gl
 
 			if (GL_RGBA == m_readPixelsFmt)
 			{
-				imageSwizzleBgra8(width, height, width*4, data, data);
+				imageSwizzleBgra8(data, width, height, width*4, data);
 			}
 
 			g_callback->screenShot(_filePath
@@ -3101,7 +3101,7 @@ namespace bgfx { namespace gl
 
 				if (GL_RGBA == m_readPixelsFmt)
 				{
-					imageSwizzleBgra8(m_resolution.m_width, m_resolution.m_height, m_resolution.m_width*4, m_capture, m_capture);
+					imageSwizzleBgra8(m_capture, m_resolution.m_width, m_resolution.m_height, m_resolution.m_width*4, m_capture);
 				}
 
 				g_callback->captureFrame(m_capture, m_captureSize);
@@ -5086,7 +5086,7 @@ namespace bgfx { namespace gl
 
 			if (!unpackRowLength)
 			{
-				imageCopy(width, height, bpp, srcpitch, data, temp);
+				imageCopy(temp, width, height, bpp, srcpitch, data);
 				data = temp;
 			}
 
@@ -5117,7 +5117,7 @@ namespace bgfx { namespace gl
 			if (!unpackRowLength
 			&&  !convert)
 			{
-				imageCopy(width, height, bpp, srcpitch, data, temp);
+				imageCopy(temp, width, height, bpp, srcpitch, data);
 				data = temp;
 			}
 
@@ -6601,6 +6601,11 @@ namespace bgfx { namespace gl
 					{
 						Rect scissorRect;
 						scissorRect.intersect(viewScissorRect, _render->m_rectCache.m_cache[scissor]);
+						if (scissorRect.isZeroArea() )
+						{
+							continue;
+						}
+
 						GL_CHECK(glEnable(GL_SCISSOR_TEST) );
 						GL_CHECK(glScissor(scissorRect.m_x
 							, resolutionHeight-scissorRect.m_height-scissorRect.m_y
@@ -7320,6 +7325,7 @@ namespace bgfx { namespace gl
 
 		if (_render->m_debug & (BGFX_DEBUG_IFH|BGFX_DEBUG_STATS) )
 		{
+			m_needPresent = true;
 			TextVideoMem& tvm = m_textVideoMem;
 
 			static int64_t next = now;
