@@ -24,9 +24,6 @@
 
 #include <inttypes.h>
 #include <stdarg.h> // va_list
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <alloca.h>
 
 // Check handle, cannot be bgfx::invalidHandle and must be valid.
@@ -85,9 +82,6 @@ namespace bgfx
 #endif // BX_COMPILER_CLANG_ANALYZER
 
 	void trace(const char* _filePath, uint16_t _line, const char* _format, ...);
-
-	void dbgPrintfVargs(const char* _format, va_list _argList);
-	void dbgPrintf(const char* _format, ...);
 
 	inline bool operator==(const VertexDeclHandle& _lhs, const VertexDeclHandle& _rhs) { return _lhs.idx == _rhs.idx; }
 	inline bool operator==(const UniformHandle& _lhs,    const UniformHandle&    _rhs) { return _lhs.idx == _rhs.idx; }
@@ -3505,7 +3499,7 @@ namespace bgfx
 					cmdbuf.write(handle);
 					cmdbuf.write(uniform.m_type);
 					cmdbuf.write(uniform.m_num);
-					uint8_t len = (uint8_t)strlen(_name)+1;
+					uint8_t len = (uint8_t)bx::strnlen(_name)+1;
 					cmdbuf.write(len);
 					cmdbuf.write(_name, len);
 				}
@@ -3533,7 +3527,7 @@ namespace bgfx
 				cmdbuf.write(handle);
 				cmdbuf.write(_type);
 				cmdbuf.write(_num);
-				uint8_t len = (uint8_t)strlen(_name)+1;
+				uint8_t len = (uint8_t)bx::strnlen(_name)+1;
 				cmdbuf.write(len);
 				cmdbuf.write(_name, len);
 			}
@@ -3609,7 +3603,7 @@ namespace bgfx
 		BGFX_API_FUNC(void saveScreenShot(const char* _filePath) )
 		{
 			CommandBuffer& cmdbuf = getCommandBuffer(CommandBuffer::SaveScreenShot);
-			uint16_t len = (uint16_t)strlen(_filePath)+1;
+			uint16_t len = (uint16_t)bx::strnlen(_filePath)+1;
 			cmdbuf.write(len);
 			cmdbuf.write(_filePath, len);
 		}
@@ -3628,7 +3622,7 @@ namespace bgfx
 		{
 			CommandBuffer& cmdbuf = getCommandBuffer(CommandBuffer::UpdateViewName);
 			cmdbuf.write(_id);
-			uint16_t len = (uint16_t)strlen(_name)+1;
+			uint16_t len = (uint16_t)bx::strnlen(_name)+1;
 			cmdbuf.write(len);
 			cmdbuf.write(_name, len);
 		}
