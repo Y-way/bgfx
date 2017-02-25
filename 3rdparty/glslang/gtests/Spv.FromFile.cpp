@@ -48,6 +48,7 @@ struct IoMapData {
     int baseTextureBinding;
     int baseImageBinding;
     int baseUboBinding;
+    int baseSsboBinding;
     bool autoMapBindings;
     bool flattenUniforms;
 };
@@ -70,6 +71,9 @@ using HlslIoMap = GlslangTest<::testing::TestWithParam<IoMapData>>;
 using GlslIoMap = GlslangTest<::testing::TestWithParam<IoMapData>>;
 #ifdef AMD_EXTENSIONS
 using CompileVulkanToSpirvTestAMD = GlslangTest<::testing::TestWithParam<std::string>>;
+#endif
+#ifdef NV_EXTENSIONS
+using CompileVulkanToSpirvTestNV = GlslangTest<::testing::TestWithParam<std::string>>;
 #endif
 
 // Compiling GLSL to SPIR-V under Vulkan semantics. Expected to successfully
@@ -126,6 +130,7 @@ TEST_P(HlslIoMap, FromFile)
                                  GetParam().baseTextureBinding,
                                  GetParam().baseImageBinding,
                                  GetParam().baseUboBinding,
+                                 GetParam().baseSsboBinding,
                                  GetParam().autoMapBindings,
                                  GetParam().flattenUniforms);
 }
@@ -140,6 +145,7 @@ TEST_P(GlslIoMap, FromFile)
                                  GetParam().baseTextureBinding,
                                  GetParam().baseImageBinding,
                                  GetParam().baseUboBinding,
+                                 GetParam().baseSsboBinding,
                                  GetParam().autoMapBindings,
                                  GetParam().flattenUniforms);
 }
@@ -152,6 +158,17 @@ TEST_P(CompileVulkanToSpirvTestAMD, FromFile)
     loadFileCompileAndCheck(GlobalTestSettings.testRoot, GetParam(),
                             Source::GLSL, Semantics::Vulkan,
                             Target::Spv);
+}
+#endif
+
+#ifdef NV_EXTENSIONS
+// Compiling GLSL to SPIR-V under Vulkan semantics (AMD extensions enabled).
+// Expected to successfully generate SPIR-V.
+TEST_P(CompileVulkanToSpirvTestNV, FromFile)
+{
+    loadFileCompileAndCheck(GlobalTestSettings.testRoot, GetParam(),
+        Source::GLSL, Semantics::Vulkan,
+        Target::Spv);
 }
 #endif
 
@@ -215,8 +232,8 @@ INSTANTIATE_TEST_CASE_P(
         "spv.forLoop.frag",
         "spv.forwardFun.frag",
         "spv.functionCall.frag",
+        "spv.functionNestedOpaque.vert",
         "spv.functionSemantics.frag",
-        "spv.GeometryShaderPassthrough.geom",
         "spv.interpOps.frag",
         "spv.int64.frag",
         "spv.layoutNested.vert",
@@ -241,7 +258,6 @@ INSTANTIATE_TEST_CASE_P(
         "spv.precision.frag",
         "spv.prepost.frag",
         "spv.qualifiers.vert",
-        "spv.sampleMaskOverrideCoverage.frag",
         "spv.shaderBallot.comp",
         "spv.shaderDrawParams.vert",
         "spv.shaderGroupVote.comp",
@@ -289,15 +305,16 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     Hlsl, HlslIoMap,
     ::testing::ValuesIn(std::vector<IoMapData>{
-        { "spv.register.autoassign.frag", "main_ep", 5, 10, 0, 20, true, false },
-        { "spv.register.noautoassign.frag", "main_ep", 5, 10, 0, 15, false, false },
-        { "spv.register.autoassign-2.frag", "main", 5, 10, 0, 15, true, true },
-        { "spv.buffer.autoassign.frag", "main", 5, 10, 0, 15, true, true },
-        { "spv.rw.autoassign.frag", "main", 5, 10, 20, 15, true, true },
+        { "spv.register.autoassign.frag", "main_ep", 5, 10, 0, 20, 30, true, false },
+        { "spv.register.noautoassign.frag", "main_ep", 5, 10, 0, 15, 30, false, false },
+        { "spv.register.autoassign-2.frag", "main", 5, 10, 0, 15, 30, true, true },
+        { "spv.buffer.autoassign.frag", "main", 5, 10, 0, 15, 30, true, true },
+        { "spv.ssbo.autoassign.frag", "main", 5, 10, 0, 15, 30, true, true },
+        { "spv.rw.autoassign.frag", "main", 5, 10, 20, 15, 30, true, true },
         { "spv.register.autoassign.rangetest.frag", "main", 
                 glslang::TQualifier::layoutBindingEnd-2,
                 glslang::TQualifier::layoutBindingEnd+5,
-                20, true, false },
+                20, 30, true, false },
     }),
     FileNameAsCustomTestSuffixIoMap
 );
@@ -306,8 +323,8 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     Hlsl, GlslIoMap,
     ::testing::ValuesIn(std::vector<IoMapData>{
-        { "spv.glsl.register.autoassign.frag", "main", 5, 10, 0, 20, true, false },
-        { "spv.glsl.register.noautoassign.frag", "main", 5, 10, 0, 15, false, false },
+        { "spv.glsl.register.autoassign.frag", "main", 5, 10, 0, 20, 30, true, false },
+        { "spv.glsl.register.noautoassign.frag", "main", 5, 10, 0, 15, 30, false, false },
     }),
     FileNameAsCustomTestSuffixIoMap
 );
@@ -361,6 +378,23 @@ INSTANTIATE_TEST_CASE_P(
         "spv.shaderBallotAMD.comp"
     })),
     FileNameAsCustomTestSuffix
+);
+#endif
+
+#ifdef NV_EXTENSIONS
+INSTANTIATE_TEST_CASE_P(
+    Glsl, CompileVulkanToSpirvTestNV,
+    ::testing::ValuesIn(std::vector<std::string>({
+    "spv.sampleMaskOverrideCoverage.frag",
+    "spv.GeometryShaderPassthrough.geom",
+    "spv.viewportArray2.vert",
+    "spv.viewportArray2.tesc",
+    "spv.stereoViewRendering.vert",
+    "spv.stereoViewRendering.tesc",
+    "spv.multiviewPerViewAttributes.vert",
+    "spv.multiviewPerViewAttributes.tesc",
+})),
+FileNameAsCustomTestSuffix
 );
 #endif
 // clang-format on

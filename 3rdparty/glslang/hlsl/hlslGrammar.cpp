@@ -131,12 +131,15 @@ bool HlslGrammar::acceptCompilationUnit()
             continue;
 
         // externalDeclaration
-        TIntermNode* declarationNode;
-        if (! acceptDeclaration(declarationNode))
+        TIntermNode* declarationNode1;
+        TIntermNode* declarationNode2 = nullptr;  // sometimes the grammar for a single declaration creates two
+        if (! acceptDeclaration(declarationNode1, declarationNode2))
             return false;
 
         // hook it up
-        unitNode = intermediate.growAggregate(unitNode, declarationNode);
+        unitNode = intermediate.growAggregate(unitNode, declarationNode1);
+        if (declarationNode2 != nullptr)
+            unitNode = intermediate.growAggregate(unitNode, declarationNode2);
     }
 
     // set root of AST
@@ -292,9 +295,18 @@ bool HlslGrammar::acceptSamplerDeclarationDX9(TType& /*type*/)
 // 'node' could get populated if the declaration creates code, like an initializer
 // or a function body.
 //
+// 'node2' could get populated with a second decoration tree if a single source declaration
+// leads to two subtrees that need to be peers higher up.
+//
 bool HlslGrammar::acceptDeclaration(TIntermNode*& node)
 {
+    TIntermNode* node2;
+    return acceptDeclaration(node, node2);
+}
+bool HlslGrammar::acceptDeclaration(TIntermNode*& node, TIntermNode*& node2)
+{
     node = nullptr;
+    node2 = nullptr;
     bool list = false;
 
     // attributes
@@ -340,7 +352,7 @@ bool HlslGrammar::acceptDeclaration(TIntermNode*& node)
                     parseContext.error(idToken.loc, "function body can't be in a declarator list", "{", "");
                 if (typedefDecl)
                     parseContext.error(idToken.loc, "function body can't be in a typedef", "{", "");
-                return acceptFunctionDefinition(function, node, attributes);
+                return acceptFunctionDefinition(function, node, node2, attributes);
             } else {
                 if (typedefDecl)
                     parseContext.error(idToken.loc, "function typedefs not implemented", "{", "");
@@ -394,6 +406,27 @@ bool HlslGrammar::acceptDeclaration(TIntermNode*& node)
                 }
             }
 
+            TString* blockName = idToken.string;
+
+            // For structbuffers, we couldn't create the block type while accepting the
+            // template type, because we need the identifier name.  Now that we have that,
+            // we can create the buffer type.
+            // TODO: how to determine this without looking for implicit array sizes?
+            if (variableType.getBasicType() == EbtBlock) {
+                const int memberCount = variableType.getStruct()->size();
+                assert(memberCount > 0);
+
+                TType* contentType = (*variableType.getStruct())[memberCount-1].type;
+                
+                // Set the field name and qualifier from the declaration, now that we know it.
+                if (contentType->isRuntimeSizedArray()) {
+                    contentType->getQualifier() = variableType.getQualifier();
+                    blockName     = nullptr;        // this will be an anonymous block...
+                    contentType->setFieldName(*idToken.string); // field name is declaration name
+                    variableType.setTypeName(*idToken.string);
+                }
+            }
+
             // Hand off the actual declaration
 
             // TODO: things scoped within an annotation need their own name space;
@@ -402,7 +435,7 @@ bool HlslGrammar::acceptDeclaration(TIntermNode*& node)
                 if (typedefDecl)
                     parseContext.declareTypedef(idToken.loc, *idToken.string, variableType);
                 else if (variableType.getBasicType() == EbtBlock)
-                    parseContext.declareBlock(idToken.loc, variableType, idToken.string);
+                    parseContext.declareBlock(idToken.loc, variableType, blockName);
                 else {
                     if (variableType.getQualifier().storage == EvqUniform && ! variableType.containsOpaque()) {
                         // this isn't really an individual variable, but a member of the $Global buffer
@@ -521,8 +554,11 @@ bool HlslGrammar::acceptFullySpecifiedType(TType& type)
         qualifier.layoutFormat = type.getQualifier().layoutFormat;
         qualifier.precision    = type.getQualifier().precision;
 
-        if (type.getQualifier().storage == EvqVaryingOut)
+        if (type.getQualifier().storage == EvqVaryingOut ||
+            type.getQualifier().storage == EvqBuffer) {
             qualifier.storage      = type.getQualifier().storage;
+            qualifier.readonly     = type.getQualifier().readonly;
+        }
 
         type.getQualifier()    = qualifier;
     }
@@ -597,6 +633,9 @@ bool HlslGrammar::acceptQualifier(TQualifier& qualifier)
             if (! acceptLayoutQualifierList(qualifier))
                 return false;
             continue;
+        case EHTokGloballyCoherent:
+            qualifier.coherent = true;
+            break;
 
         // GS geometries: these are specified on stage input variables, and are an error (not verified here)
         // for output variables.
@@ -857,6 +896,67 @@ bool HlslGrammar::acceptOutputPrimitiveGeometry(TLayoutGeometry& geometry)
     return true;
 }
 
+// tessellation_decl_type
+//      : INPUTPATCH
+//      | OUTPUTPATCH
+//
+bool HlslGrammar::acceptTessellationDeclType()
+{
+    // read geometry type
+    const EHlslTokenClass tessType = peek();
+
+    switch (tessType) {
+    case EHTokInputPatch:    break;
+    case EHTokOutputPatch:   break;
+    default:
+        return false;  // not a tessellation decl
+    }
+
+    advanceToken();  // consume the keyword
+    return true;
+}
+
+// tessellation_patch_template_type
+//      : tessellation_decl_type LEFT_ANGLE type comma integer_literal RIGHT_ANGLE
+//
+bool HlslGrammar::acceptTessellationPatchTemplateType(TType& type)
+{
+    if (! acceptTessellationDeclType())
+        return false;
+    
+    if (! acceptTokenClass(EHTokLeftAngle))
+        return false;
+
+    if (! acceptType(type)) {
+        expected("tessellation patch type");
+        return false;
+    }
+
+    if (! acceptTokenClass(EHTokComma))
+        return false;
+
+    // integer size
+    if (! peekTokenClass(EHTokIntConstant)) {
+        expected("literal integer");
+        return false;
+    }
+
+    TIntermTyped* size;
+    if (! acceptLiteral(size))
+        return false;
+
+    TArraySizes* arraySizes = new TArraySizes;
+    arraySizes->addInnerSize(size->getAsConstantUnion()->getConstArray()[0].getIConst());
+    type.newArraySizes(*arraySizes);
+
+    if (! acceptTokenClass(EHTokRightAngle)) {
+        expected("right angle bracket");
+        return false;
+    }
+
+    return true;
+}
+    
 // stream_out_template_type
 //      : output_primitive_geometry_type LEFT_ANGLE type RIGHT_ANGLE
 //
@@ -1135,6 +1235,15 @@ bool HlslGrammar::acceptType(TType& type)
             return true;
         }
 
+    case EHTokInputPatch:             // fall through
+    case EHTokOutputPatch:            // ...
+        {
+            if (! acceptTessellationPatchTemplateType(type))
+                return false;
+
+            return true;
+        }
+
     case EHTokSampler:                // fall through
     case EHTokSampler1d:              // ...
     case EHTokSampler2d:              // ...
@@ -1164,11 +1273,19 @@ bool HlslGrammar::acceptType(TType& type)
         return acceptTextureType(type);
         break;
 
+    case EHTokAppendStructuredBuffer:
+    case EHTokByteAddressBuffer:
+    case EHTokConsumeStructuredBuffer:
+    case EHTokRWByteAddressBuffer:
+    case EHTokRWStructuredBuffer:
+    case EHTokStructuredBuffer:
+        return acceptStructBufferType(type);
+        break;
+
     case EHTokStruct:
     case EHTokCBuffer:
     case EHTokTBuffer:
         return acceptStruct(type);
-        break;
 
     case EHTokIdentifier:
         // An identifier could be for a user-defined type.
@@ -1696,14 +1813,94 @@ bool HlslGrammar::acceptStruct(TType& type)
         new(&type) TType(typeList, structName, postDeclQualifier); // sets EbtBlock
     }
 
-    // If it was named, which means the type can be reused later, add
-    // it to the symbol table.  (Unless it's a block, in which
-    // case the name is not a type.)
-    if (type.getBasicType() != EbtBlock && structName.size() > 0) {
-        TVariable* userTypeDef = new TVariable(&structName, type, true);
-        if (! parseContext.symbolTable.insert(*userTypeDef))
-            parseContext.error(token.loc, "redefinition", structName.c_str(), "struct");
+    parseContext.declareStruct(token.loc, structName, type);
+
+    return true;
+}
+
+// struct_buffer
+//    : APPENDSTRUCTUREDBUFFER
+//    | BYTEADDRESSBUFFER
+//    | CONSUMESTRUCTUREDBUFFER
+//    | RWBYTEADDRESSBUFFER
+//    | RWSTRUCTUREDBUFFER
+//    | STRUCTUREDBUFFER
+bool HlslGrammar::acceptStructBufferType(TType& type)
+{
+    const EHlslTokenClass structBuffType = peek();
+
+    // TODO: globallycoherent
+    bool hasTemplateType = true;
+    bool readonly = false;
+
+    TStorageQualifier storage = EvqBuffer;
+
+    switch (structBuffType) {
+    case EHTokAppendStructuredBuffer:
+        unimplemented("AppendStructuredBuffer");
+        return false;
+    case EHTokByteAddressBuffer:
+        hasTemplateType = false;
+        readonly = true;
+        break;
+    case EHTokConsumeStructuredBuffer:
+        unimplemented("ConsumeStructuredBuffer");
+        return false;
+    case EHTokRWByteAddressBuffer:
+        hasTemplateType = false;
+        break;
+    case EHTokRWStructuredBuffer:
+        break;
+    case EHTokStructuredBuffer:
+        readonly = true;
+        break;
+    default:
+        return false;  // not a structure buffer type
     }
+
+    advanceToken();  // consume the structure keyword
+
+    // type on which this StructedBuffer is templatized.  E.g, StructedBuffer<MyStruct> ==> MyStruct
+    TType* templateType = new TType;
+
+    if (hasTemplateType) {
+        if (! acceptTokenClass(EHTokLeftAngle)) {
+            expected("left angle bracket");
+            return false;
+        }
+    
+        if (! acceptType(*templateType)) {
+            expected("type");
+            return false;
+        }
+        if (! acceptTokenClass(EHTokRightAngle)) {
+            expected("right angle bracket");
+            return false;
+        }
+    } else {
+        // byte address buffers have no explicit type.
+        TType uintType(EbtUint, storage);
+        templateType->shallowCopy(uintType);
+    }
+
+    // Create an unsized array out of that type.
+    // TODO: does this work if it's already an array type?
+    TArraySizes unsizedArray;
+    unsizedArray.addInnerSize(UnsizedArraySize);
+    templateType->newArraySizes(unsizedArray);
+    templateType->getQualifier().storage = storage;
+    templateType->getQualifier().readonly = readonly;
+
+    // Create block type.  TODO: hidden internal uint member when needed
+    TTypeList* blockStruct = new TTypeList;
+    TTypeLoc  member = { templateType, token.loc };
+    blockStruct->push_back(member);
+
+    TType blockType(blockStruct, "", templateType->getQualifier());
+
+    // It's not until we see the name during declaration that we can set the
+    // field name.  That happens in HlslGrammar::acceptDeclaration.
+    type.shallowCopy(blockType);
 
     return true;
 }
@@ -1757,6 +1954,16 @@ bool HlslGrammar::acceptStructDeclarationList(TTypeList*& typeList)
                 typeList->back().type->newArraySizes(*arraySizes);
 
             acceptPostDecls(member.type->getQualifier());
+
+            // EQUAL assignment_expression
+            if (acceptTokenClass(EHTokAssign)) {
+                parseContext.warn(idToken.loc, "struct-member initializers ignored", "typedef", "");
+                TIntermTyped* expressionNode = nullptr;
+                if (! acceptAssignmentExpression(expressionNode)) {
+                    expected("initializer");
+                    return false;
+                }
+            }
 
             // success on seeing the SEMICOLON coming up
             if (peekTokenClass(EHTokSemicolon))
@@ -1906,22 +2113,22 @@ bool HlslGrammar::acceptParameterDeclaration(TFunction& function)
 
 // Do the work to create the function definition in addition to
 // parsing the body (compound_statement).
-bool HlslGrammar::acceptFunctionDefinition(TFunction& function, TIntermNode*& node, const TAttributeMap& attributes)
+bool HlslGrammar::acceptFunctionDefinition(TFunction& function, TIntermNode*& node, TIntermNode*& node2, const TAttributeMap& attributes)
 {
     TFunction& functionDeclarator = parseContext.handleFunctionDeclarator(token.loc, function, false /* not prototype */);
     TSourceLoc loc = token.loc;
 
     // This does a pushScope()
-    node = parseContext.handleFunctionDefinition(loc, functionDeclarator, attributes);
+    node = parseContext.handleFunctionDefinition(loc, functionDeclarator, attributes, node2);
 
     // compound_statement
     TIntermNode* functionBody = nullptr;
-    if (acceptCompoundStatement(functionBody)) {
-        parseContext.handleFunctionBody(loc, functionDeclarator, functionBody, node);
-        return true;
-    }
+    if (! acceptCompoundStatement(functionBody))
+        return false;
 
-    return false;
+    parseContext.handleFunctionBody(loc, functionDeclarator, functionBody, node);
+
+    return true;
 }
 
 // Accept an expression with parenthesis around it, where
@@ -2318,7 +2525,10 @@ bool HlslGrammar::acceptPostfixExpression(TIntermTyped*& node)
     struct tFinalize {
         tFinalize(HlslParseContext& p) : parseContext(p) { }
         ~tFinalize() { parseContext.finalizeFlattening(); }
-       HlslParseContext& parseContext;
+        HlslParseContext& parseContext;
+    private:
+        const tFinalize& operator=(const tFinalize& f);
+        tFinalize(const tFinalize& f);
     } finalize(parseContext);
 
     // Initialize the flattening accumulation data, so we can track data across multiple bracket or
@@ -2504,7 +2714,7 @@ bool HlslGrammar::acceptLiteral(TIntermTyped*& node)
         node = intermediate.addConstantUnion(token.b, token.loc, true);
         break;
     case EHTokStringConstant:
-        node = nullptr;
+        node = intermediate.addConstantUnion(token.string, token.loc, true);
         break;
 
     default:
