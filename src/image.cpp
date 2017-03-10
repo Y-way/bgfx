@@ -836,7 +836,80 @@ namespace bgfx
 	bool imageConvert(void* _dst, TextureFormat::Enum _dstFormat, const void* _src, TextureFormat::Enum _srcFormat, uint32_t _width, uint32_t _height)
 	{
 		const uint32_t srcBpp = s_imageBlockInfo[_srcFormat].bitsPerPixel;
+
+		if (_dstFormat == _srcFormat)
+		{
+			bx::memCopy(_dst, _src, _width*_height*srcBpp/8);
+			return true;
+		}
+
 		return imageConvert(_dst, _dstFormat, _src, _srcFormat, _width, _height, _width*srcBpp/8);
+	}
+
+	ImageContainer* imageConvert(bx::AllocatorI* _allocator, TextureFormat::Enum _dstFormat, const ImageContainer& _input)
+	{
+		ImageContainer* output = imageAlloc(_allocator
+			, _dstFormat
+			, uint16_t(_input.m_width)
+			, uint16_t(_input.m_height)
+			, uint16_t(_input.m_depth)
+			, _input.m_numLayers
+			, _input.m_cubeMap
+			, 1 < _input.m_numMips
+			);
+
+		const uint8_t  bpp = getBitsPerPixel(_dstFormat);
+		const uint16_t numSides = _input.m_numLayers * (_input.m_cubeMap ? 6 : 1);
+
+		uint8_t* dst = (uint8_t*)output->m_data	;
+		for (uint16_t side = 0; side < numSides; ++side)
+		{
+			for (uint8_t lod = 0, num = _input.m_numMips; lod < num; ++lod)
+			{
+				ImageMip mip;
+				if (imageGetRawData(_input, side, lod, _input.m_data, _input.m_size, mip) )
+				{
+					bool ok = imageConvert(dst
+							, _dstFormat
+							, mip.m_data
+							, mip.m_format
+							, mip.m_width
+							, mip.m_height
+							);
+					BX_CHECK(ok, "Conversion from %s to %s failed!"
+							, getName(_input.m_format)
+							, getName(output->m_format)
+							);
+					BX_UNUSED(ok);
+
+					dst += mip.m_width*mip.m_height*bpp/8;
+				}
+			}
+		}
+
+		return output;
+	}
+
+	ImageContainer* imageParseBgfx(bx::AllocatorI* _allocator, const void* _src, uint32_t _size)
+	{
+		ImageContainer imageContainer;
+		if (!imageParse(imageContainer, _src, _size) )
+		{
+			return NULL;
+		}
+
+		ImageContainer* output = imageAlloc(_allocator
+			, imageContainer.m_format
+			, uint16_t(imageContainer.m_width)
+			, uint16_t(imageContainer.m_height)
+			, uint16_t(imageContainer.m_depth)
+			, imageContainer.m_numLayers
+			, imageContainer.m_cubeMap
+			, 1 < imageContainer.m_numMips
+			, (uint8_t*)_src + imageContainer.m_offset
+			);
+
+		return output;
 	}
 
 	uint8_t bitRangeConvert(uint32_t _in, uint32_t _from, uint32_t _to)
@@ -1623,7 +1696,7 @@ namespace bgfx
 		}
 	}
 
-	ImageContainer* imageAlloc(bx::AllocatorI* _allocator, TextureFormat::Enum _format, uint16_t _width, uint16_t _height, uint16_t _depth, uint16_t _numLayers, bool _cubeMap, bool _hasMips)
+	ImageContainer* imageAlloc(bx::AllocatorI* _allocator, TextureFormat::Enum _format, uint16_t _width, uint16_t _height, uint16_t _depth, uint16_t _numLayers, bool _cubeMap, bool _hasMips, const void* _data)
 	{
 		const ImageBlockInfo& blockInfo = getBlockInfo(_format);
 		const uint16_t blockWidth  = blockInfo.blockWidth;
@@ -1656,6 +1729,11 @@ namespace bgfx
 		imageContainer->m_ktx       = false;
 		imageContainer->m_ktxLE     = false;
 		imageContainer->m_srgb      = false;
+
+		if (NULL != _data)
+		{
+			bx::memCopy(imageContainer->m_data, _data, imageContainer->m_size);
+		}
 
 		return imageContainer;
 	}
