@@ -4684,6 +4684,7 @@ namespace bgfx { namespace gl
 			GL_CHECK(glGenTextures(1, &m_id) );
 			BX_CHECK(0 != m_id, "Failed to generate texture id.");
 			GL_CHECK(glBindTexture(_target, m_id) );
+			GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1) );
 
 			const TextureFormatInfo& tfi = s_textureFormat[m_textureFormat];
 			m_fmt  = tfi.m_fmt;
@@ -7123,7 +7124,6 @@ namespace bgfx { namespace gl
 							for (size_t ii = 0; ii < BGFX_CONFIG_MAX_VERTEX_STREAMS; ++ii)
 							{
 								currentState.m_stream[ii].m_handle.idx = invalidHandle;
-								currentState.m_stream[ii].m_startVertex = 0;
 							}
 							currentState.m_indexBuffer.idx = invalidHandle;
 							bindAttribs = true;
@@ -7167,8 +7167,9 @@ namespace bgfx { namespace gl
 								idx         += ntz;
 
 								currentState.m_stream[idx].m_handle = draw.m_stream[idx].m_handle;
-								currentState.m_stream[idx].m_startVertex = draw.m_stream[idx].m_startVertex;
 							}
+
+							bindAttribs = true;
 						}
 
 						if (currentState.m_indexBuffer.idx != draw.m_indexBuffer.idx)
@@ -7216,12 +7217,12 @@ namespace bgfx { namespace gl
 									streamMask >>= ntz;
 									idx         += ntz;
 
-									const Stream& stream = draw.m_stream[idx];
+									currentState.m_stream[idx].m_startVertex = draw.m_stream[idx].m_startVertex;
 
-									const VertexBufferGL& vb = m_vertexBuffers[stream.m_handle.idx];
-									uint16_t decl = !isValid(vb.m_decl) ? stream.m_decl.idx : vb.m_decl.idx;
+									const VertexBufferGL& vb = m_vertexBuffers[draw.m_stream[idx].m_handle.idx];
+									uint16_t decl = !isValid(vb.m_decl) ? draw.m_stream[idx].m_decl.idx : vb.m_decl.idx;
 									GL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, vb.m_id) );
-									program.bindAttributes(m_vertexDecls[decl], stream.m_startVertex);
+									program.bindAttributes(m_vertexDecls[decl], draw.m_stream[idx].m_startVertex);
 								}
 								program.bindAttributesEnd();
 
@@ -7247,10 +7248,8 @@ namespace bgfx { namespace gl
 								streamMask >>= ntz;
 								idx         += ntz;
 
-								const Stream& stream = currentState.m_stream[idx];
-
-								const VertexBufferGL& vb = m_vertexBuffers[stream.m_handle.idx];
-								uint16_t decl = !isValid(vb.m_decl) ? stream.m_decl.idx : vb.m_decl.idx;
+								const VertexBufferGL& vb = m_vertexBuffers[draw.m_stream[idx].m_handle.idx];
+								uint16_t decl = !isValid(vb.m_decl) ? draw.m_stream[idx].m_decl.idx : vb.m_decl.idx;
 								const VertexDecl& vertexDecl = m_vertexDecls[decl];
 
 								numVertices = bx::uint32_min(numVertices, vb.m_size/vertexDecl.m_stride);

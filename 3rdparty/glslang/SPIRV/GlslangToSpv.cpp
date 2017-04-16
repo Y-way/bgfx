@@ -480,16 +480,18 @@ spv::BuiltIn TGlslangToSpvTraverser::TranslateBuiltInDecoration(glslang::TBuiltI
         return spv::BuiltInCullDistance;
 
     case glslang::EbvViewportIndex:
-        builder.addCapability(spv::CapabilityMultiViewport);
+        if (!memberDeclaration) {
+            builder.addCapability(spv::CapabilityMultiViewport);
 #ifdef NV_EXTENSIONS
-        if (glslangIntermediate->getStage() == EShLangVertex ||
-            glslangIntermediate->getStage() == EShLangTessControl ||
-            glslangIntermediate->getStage() == EShLangTessEvaluation)
-        {
-            builder.addExtension(spv::E_SPV_NV_viewport_array2);
-            builder.addCapability(spv::CapabilityShaderViewportIndexLayerNV);
-        }
+            if (glslangIntermediate->getStage() == EShLangVertex ||
+                glslangIntermediate->getStage() == EShLangTessControl ||
+                glslangIntermediate->getStage() == EShLangTessEvaluation) {
+
+                builder.addExtension(spv::E_SPV_NV_viewport_array2);
+                builder.addCapability(spv::CapabilityShaderViewportIndexLayerNV);
+            }
 #endif
+        }
         return spv::BuiltInViewportIndex;
 
     case glslang::EbvSampleId:
@@ -505,19 +507,19 @@ spv::BuiltIn TGlslangToSpvTraverser::TranslateBuiltInDecoration(glslang::TBuiltI
         return spv::BuiltInSampleMask;
 
     case glslang::EbvLayer:
-        builder.addCapability(spv::CapabilityGeometry);
+        if (!memberDeclaration) {
+            builder.addCapability(spv::CapabilityGeometry);
 #ifdef NV_EXTENSIONS
-        if (!memberDeclaration)
-        {
             if (glslangIntermediate->getStage() == EShLangVertex ||
                 glslangIntermediate->getStage() == EShLangTessControl ||
-                glslangIntermediate->getStage() == EShLangTessEvaluation)
-            {
+                glslangIntermediate->getStage() == EShLangTessEvaluation) {
+
                 builder.addExtension(spv::E_SPV_NV_viewport_array2);
                 builder.addCapability(spv::CapabilityShaderViewportIndexLayerNV);
             }
-        }
 #endif
+        }
+
         return spv::BuiltInLayer;
 
     case glslang::EbvPosition:             return spv::BuiltInPosition;
@@ -640,8 +642,10 @@ spv::BuiltIn TGlslangToSpvTraverser::TranslateBuiltInDecoration(glslang::TBuiltI
 
 #ifdef NV_EXTENSIONS
     case glslang::EbvViewportMaskNV:
-        builder.addExtension(spv::E_SPV_NV_viewport_array2);
-        builder.addCapability(spv::CapabilityShaderViewportMaskNV);
+        if (!memberDeclaration) {
+            builder.addExtension(spv::E_SPV_NV_viewport_array2);
+            builder.addCapability(spv::CapabilityShaderViewportMaskNV);
+        }
         return spv::BuiltInViewportMaskNV;
     case glslang::EbvSecondaryPositionNV:
         if (!memberDeclaration) {
@@ -2690,6 +2694,7 @@ void TGlslangToSpvTraverser::declareUseOfStructMember(const glslang::TTypeList& 
     case glslang::EbvPointSize:
 #ifdef NV_EXTENSIONS
     case glslang::EbvLayer:
+    case glslang::EbvViewportIndex:
     case glslang::EbvViewportMaskNV:
     case glslang::EbvSecondaryPositionNV:
     case glslang::EbvSecondaryViewportMaskNV:
@@ -2922,6 +2927,10 @@ spv::Id TGlslangToSpvTraverser::createImageTextureFunctionCall(glslang::TIntermO
     glslang::TCrackedTextureOp cracked;
     node->crackTexture(sampler, cracked);
 
+    const bool isUnsignedResult =
+        node->getType().getBasicType() == glslang::EbtUint64 ||
+        node->getType().getBasicType() == glslang::EbtUint;
+
     // Check for queries
     if (cracked.query) {
         // OpImageQueryLod works on a sampled image, for other queries the image has to be extracted first
@@ -2933,17 +2942,17 @@ spv::Id TGlslangToSpvTraverser::createImageTextureFunctionCall(glslang::TIntermO
         case glslang::EOpTextureQuerySize:
             if (arguments.size() > 1) {
                 params.lod = arguments[1];
-                return builder.createTextureQueryCall(spv::OpImageQuerySizeLod, params);
+                return builder.createTextureQueryCall(spv::OpImageQuerySizeLod, params, isUnsignedResult);
             } else
-                return builder.createTextureQueryCall(spv::OpImageQuerySize, params);
+                return builder.createTextureQueryCall(spv::OpImageQuerySize, params, isUnsignedResult);
         case glslang::EOpImageQuerySamples:
         case glslang::EOpTextureQuerySamples:
-            return builder.createTextureQueryCall(spv::OpImageQuerySamples, params);
+            return builder.createTextureQueryCall(spv::OpImageQuerySamples, params, isUnsignedResult);
         case glslang::EOpTextureQueryLod:
             params.coords = arguments[1];
-            return builder.createTextureQueryCall(spv::OpImageQueryLod, params);
+            return builder.createTextureQueryCall(spv::OpImageQueryLod, params, isUnsignedResult);
         case glslang::EOpTextureQueryLevels:
-            return builder.createTextureQueryCall(spv::OpImageQueryLevels, params);
+            return builder.createTextureQueryCall(spv::OpImageQueryLevels, params, isUnsignedResult);
         case glslang::EOpSparseTexelsResident:
             return builder.createUnaryOp(spv::OpImageSparseTexelsResident, builder.makeBoolType(), arguments[0]);
         default:

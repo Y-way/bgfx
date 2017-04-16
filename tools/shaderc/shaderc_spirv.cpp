@@ -8,6 +8,7 @@
 BX_PRAGMA_DIAGNOSTIC_PUSH()
 BX_PRAGMA_DIAGNOSTIC_IGNORED_MSVC(4100) // error C4100: 'inclusionDepth' : unreferenced formal parameter
 BX_PRAGMA_DIAGNOSTIC_IGNORED_MSVC(4265) // error C4265: 'spv::spirvbin_t': class has virtual functions, but destructor is not virtual
+BX_PRAGMA_DIAGNOSTIC_IGNORED_CLANG_GCC("-Wshadow") // warning: declaration of 'userData' shadows a member of 'glslang::TShader::Includer::IncludeResult'
 #include <ShaderLang.h>
 #include <ResourceLimits.h>
 #include <SPIRV/SPVRemapper.h>
@@ -673,14 +674,14 @@ namespace bgfx { namespace spirv
 							un.type = UniformType::End;
 							break;
 						}
-						un.num = program->getUniformArraySize(ii);
+						un.num = uint8_t(program->getUniformArraySize(ii) );
 						un.regIndex = 0;
 						un.regCount = un.num;
 
 						uint8_t nameSize = (uint8_t)un.name.size();
 						bx::write(_writer, nameSize);
 						bx::write(_writer, un.name.c_str(), nameSize);
-						uint8_t type = un.type | fragmentBit;
+						uint8_t type = uint8_t(un.type | fragmentBit);
 						bx::write(_writer, type);
 						bx::write(_writer, un.num);
 						bx::write(_writer, un.regIndex);
