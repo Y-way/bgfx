@@ -13,7 +13,7 @@
 // necessary to use this header in conjunction with creating windows.
 
 #include <bx/platform.h>
-#include <bgfx/c99/bgfx.h>
+#include "bgfx.h"
 
 typedef enum bgfx_render_frame
 {
@@ -81,8 +81,6 @@ typedef struct bgfx_interface_vtbl
     uint16_t (*weld_vertices)(uint16_t* _output, const bgfx_vertex_decl_t* _decl, const void* _data, uint16_t _num, float _epsilon);
     uint32_t (*topology_convert)(bgfx_topology_convert_t _conversion, void* _dst, uint32_t _dstSize, const void* _indices, uint32_t _numIndices, bool _index32);
     void (*topology_sort_tri_list)(bgfx_topology_sort_t _sort, void* _dst, uint32_t _dstSize, const float _dir[3], const float _pos[3], const void* _vertices, uint32_t _stride, const void* _indices, uint32_t _numIndices, bool _index32);
-    void (*image_swizzle_bgra8)(void* _dst, uint32_t _width, uint32_t _height, uint32_t _pitch, const void* _src);
-    void (*image_rgba8_downsample_2x2)(void* _dst, uint32_t _width, uint32_t _height, uint32_t _pitch, const void* _src);
     uint8_t (*get_supported_renderers)(uint8_t _max, bgfx_renderer_type_t* _enum);
     const char* (*get_renderer_name)(bgfx_renderer_type_t _type);
     bool (*init)(bgfx_renderer_type_t _type, uint16_t _vendorId, uint16_t _deviceId, bgfx_callback_interface_t* _callback, bgfx_allocator_interface_t* _allocator);
@@ -177,9 +175,9 @@ typedef struct bgfx_interface_vtbl
     void (*set_index_buffer)(bgfx_index_buffer_handle_t _handle, uint32_t _firstIndex, uint32_t _numIndices);
     void (*set_dynamic_index_buffer)(bgfx_dynamic_index_buffer_handle_t _handle, uint32_t _firstIndex, uint32_t _numIndices);
     void (*set_transient_index_buffer)(const bgfx_transient_index_buffer_t* _tib, uint32_t _firstIndex, uint32_t _numIndices);
-    void (*set_vertex_buffer)(bgfx_vertex_buffer_handle_t _handle, uint32_t _startVertex, uint32_t _numVertices);
-    void (*set_dynamic_vertex_buffer)(bgfx_dynamic_vertex_buffer_handle_t _handle, uint32_t _startVertex, uint32_t _numVertices);
-    void (*set_transient_vertex_buffer)(const bgfx_transient_vertex_buffer_t* _tvb, uint32_t _startVertex, uint32_t _numVertices);
+    void (*set_vertex_buffer)(uint8_t _stream, bgfx_vertex_buffer_handle_t _handle, uint32_t _startVertex, uint32_t _numVertices);
+    void (*set_dynamic_vertex_buffer)(uint8_t _stream, bgfx_dynamic_vertex_buffer_handle_t _handle, uint32_t _startVertex, uint32_t _numVertices);
+    void (*set_transient_vertex_buffer)(uint8_t _stream, const bgfx_transient_vertex_buffer_t* _tvb, uint32_t _startVertex, uint32_t _numVertices);
     void (*set_instance_data_buffer)(const bgfx_instance_data_buffer_t* _idb, uint32_t _num);
     void (*set_instance_data_from_vertex_buffer)(bgfx_vertex_buffer_handle_t _handle, uint32_t _startVertex, uint32_t _num);
     void (*set_instance_data_from_dynamic_vertex_buffer)(bgfx_dynamic_vertex_buffer_handle_t _handle, uint32_t _startVertex, uint32_t _num);

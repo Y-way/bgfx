@@ -35,7 +35,8 @@ $EXE -D -e flizv -l -q -C -V hlsl.reflection.vert > $TARGETDIR/hlsl.reflection.v
 diff -b $BASEDIR/hlsl.reflection.vert.out $TARGETDIR/hlsl.reflection.vert.out || HASERROR=1
 $EXE -D -e main -l -q -C -V hlsl.reflection.binding.frag > $TARGETDIR/hlsl.reflection.binding.frag.out
 diff -b $BASEDIR/hlsl.reflection.binding.frag.out $TARGETDIR/hlsl.reflection.binding.frag.out || HASERROR=1
-
+$EXE -D -e main -l -q --hlsl-iomap --auto-map-bindings --stb 10 --sbb 20 --ssb 30 --suavb 40 --scb 50 -D -V -e main hlsl.automap.frag > $TARGETDIR/hlsl.automap.frag.out
+diff -b $BASEDIR/hlsl.automap.frag.out $TARGETDIR/hlsl.automap.frag.out || HASERROR=1
 
 #
 # multi-threaded test
@@ -73,6 +74,27 @@ echo Running explicit stage test
 $EXE -i -S vert nosuffix > $TARGETDIR/nosuffix.out
 diff -b $BASEDIR/nosuffix.out $TARGETDIR/nosuffix.out || HASERROR=1
 
+#
+# Testing --hlsl-offsets
+#
+echo Running hlsl offsets
+$EXE -i --hlsl-offsets -H spv.hlslOffsets.vert > $TARGETDIR/spv.hlslOffsets.vert.out
+diff -b $BASEDIR/spv.hlslOffsets.vert.out $TARGETDIR/spv.hlslOffsets.vert.out || HASERROR=1
+
+echo Running hlsl offsets
+$EXE -i  --hlsl-offsets -D -e main -H hlsl.hlslOffset.vert > $TARGETDIR/hlsl.hlslOffset.vert.out
+diff -b $BASEDIR/hlsl.hlslOffset.vert.out $TARGETDIR/hlsl.hlslOffset.vert.out || HASERROR=1
+
+#
+# Tesing --resource-set-binding
+#
+echo Configuring HLSL descriptor set and binding number manually
+$EXE -V -D -e main -H hlsl.multiDescriptorSet.frag --rsb frag t0 0 0 t1 1 0 s0 0 1 s1 1 1 b0 2 0 b1 2 1 b2 2 2 > $TARGETDIR/hlsl.multiDescriptorSet.frag.out
+diff -b $BASEDIR/hlsl.multiDescriptorSet.frag.out $TARGETDIR/hlsl.multiDescriptorSet.frag.out
+
+#
+# Final checking
+#
 if [ $HASERROR -eq 0 ]
 then
     echo Tests Succeeded.

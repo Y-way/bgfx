@@ -21,6 +21,8 @@ namespace stl = tinystl;
 
 #include "bgfx_utils.h"
 
+#include <bimg/decode.h>
+
 void* load(bx::FileReaderI* _reader, bx::AllocatorI* _allocator, const char* _filePath, uint32_t* _size)
 {
 	if (bx::open(_reader, _filePath) )
@@ -117,9 +119,9 @@ static bgfx::ShaderHandle loadShader(bx::FileReaderI* _reader, const char* _name
 		break;
 	}
 
-	bx::strlncpy(filePath, BX_COUNTOF(filePath), shaderPath);
-	bx::strlncat(filePath, BX_COUNTOF(filePath), _name);
-	bx::strlncat(filePath, BX_COUNTOF(filePath), ".bin");
+	bx::strCopy(filePath, BX_COUNTOF(filePath), shaderPath);
+	bx::strCat(filePath, BX_COUNTOF(filePath), _name);
+	bx::strCat(filePath, BX_COUNTOF(filePath), ".bin");
 
 	return bgfx::createShader(loadMem(_reader, filePath) );
 }
@@ -149,8 +151,8 @@ bgfx::ProgramHandle loadProgram(const char* _vsName, const char* _fsName)
 static void imageReleaseCb(void* _ptr, void* _userData)
 {
 	BX_UNUSED(_ptr);
-	bgfx::ImageContainer* imageContainer = (bgfx::ImageContainer*)_userData;
-	bgfx::imageFree(imageContainer);
+	bimg::ImageContainer* imageContainer = (bimg::ImageContainer*)_userData;
+	bimg::imageFree(imageContainer);
 }
 
 bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _filePath, uint32_t _flags, uint8_t _skip, bgfx::TextureInfo* _info)
@@ -162,7 +164,7 @@ bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _filePath,
 	void* data = load(_reader, entry::getAllocator(), _filePath, &size);
 	if (NULL != data)
 	{
-		bgfx::ImageContainer* imageContainer = bgfx::imageParse(entry::getAllocator(), data, size);
+		bimg::ImageContainer* imageContainer = bimg::imageParse(entry::getAllocator(), data, size);
 
 		if (NULL != imageContainer)
 		{
@@ -180,7 +182,7 @@ bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _filePath,
 					  uint16_t(imageContainer->m_width)
 					, 1 < imageContainer->m_numMips
 					, imageContainer->m_numLayers
-					, imageContainer->m_format
+					, bgfx::TextureFormat::Enum(imageContainer->m_format)
 					, _flags
 					, mem
 					);
@@ -192,7 +194,7 @@ bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _filePath,
 					, uint16_t(imageContainer->m_height)
 					, 1 < imageContainer->m_numMips
 					, imageContainer->m_numLayers
-					, imageContainer->m_format
+					, bgfx::TextureFormat::Enum(imageContainer->m_format)
 					, _flags
 					, mem
 					);
@@ -204,11 +206,11 @@ bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _filePath,
 					  *_info
 					, uint16_t(imageContainer->m_width)
 					, uint16_t(imageContainer->m_height)
-					, 0
-					, false
-					, false
-					, 1
-					, imageContainer->m_format
+					, uint16_t(imageContainer->m_depth)
+					, imageContainer->m_cubeMap
+					, 1 < imageContainer->m_numMips
+					, imageContainer->m_numLayers
+					, bgfx::TextureFormat::Enum(imageContainer->m_format)
 					);
 			}
 		}
@@ -222,12 +224,12 @@ bgfx::TextureHandle loadTexture(const char* _name, uint32_t _flags, uint8_t _ski
 	return loadTexture(entry::getFileReader(), _name, _flags, _skip, _info);
 }
 
-bgfx::ImageContainer* imageLoad(const char* _filePath, bgfx::TextureFormat::Enum _dstFormat)
+bimg::ImageContainer* imageLoad(const char* _filePath, bgfx::TextureFormat::Enum _dstFormat)
 {
 	uint32_t size = 0;
 	void* data = loadMem(entry::getFileReader(), entry::getAllocator(), _filePath, &size);
 
-	return bgfx::imageParse(entry::getAllocator(), data, size, _dstFormat);
+	return bimg::imageParse(entry::getAllocator(), data, size, bimg::TextureFormat::Enum(_dstFormat) );
 }
 
 void calcTangents(void* _vertices, uint16_t _numVertices, bgfx::VertexDecl _decl, const uint16_t* _indices, uint32_t _numIndices)
@@ -545,7 +547,7 @@ struct Mesh
 			const Group& group = *it;
 
 			bgfx::setIndexBuffer(group.m_ibh);
-			bgfx::setVertexBuffer(group.m_vbh);
+			bgfx::setVertexBuffer(0, group.m_vbh);
 			bgfx::submit(_id, _program, 0, it != itEnd-1);
 		}
 	}
@@ -576,7 +578,7 @@ struct Mesh
 				const Group& group = *it;
 
 				bgfx::setIndexBuffer(group.m_ibh);
-				bgfx::setVertexBuffer(group.m_vbh);
+				bgfx::setVertexBuffer(0, group.m_vbh);
 				bgfx::submit(state.m_viewId, state.m_program, 0, it != itEnd-1);
 			}
 		}

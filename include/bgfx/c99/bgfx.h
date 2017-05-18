@@ -39,7 +39,7 @@
 #   define BGFX_C_API BGFX_SHARED_LIB_API
 #endif // defined(__cplusplus)
 
-#include <bgfx/defines.h>
+#include "../defines.h"
 
 typedef enum bgfx_renderer_type
 {
@@ -172,7 +172,7 @@ typedef enum bgfx_texture_format
     BGFX_TEXTURE_FORMAT_RGBA4,
     BGFX_TEXTURE_FORMAT_RGB5A1,
     BGFX_TEXTURE_FORMAT_RGB10A2,
-    BGFX_TEXTURE_FORMAT_R11G11B10F,
+    BGFX_TEXTURE_FORMAT_RG11B10F,
 
     BGFX_TEXTURE_FORMAT_UNKNOWN_DEPTH,
 
@@ -549,12 +549,6 @@ BGFX_C_API uint32_t bgfx_topology_convert(bgfx_topology_convert_t _conversion, v
 BGFX_C_API void bgfx_topology_sort_tri_list(bgfx_topology_sort_t _sort, void* _dst, uint32_t _dstSize, const float _dir[3], const float _pos[3], const void* _vertices, uint32_t _stride, const void* _indices, uint32_t _numIndices, bool _index32);
 
 /**/
-BGFX_C_API void bgfx_image_swizzle_bgra8(void* _dst, uint32_t _width, uint32_t _height, uint32_t _pitch, const void* _src);
-
-/**/
-BGFX_C_API void bgfx_image_rgba8_downsample_2x2(void* _dst, uint32_t _width, uint32_t _height, uint32_t _pitch, const void* _src);
-
-/**/
 BGFX_C_API uint8_t bgfx_get_supported_renderers(uint8_t _max, bgfx_renderer_type_t* _enum);
 
 /**/
@@ -846,13 +840,13 @@ BGFX_C_API void bgfx_set_dynamic_index_buffer(bgfx_dynamic_index_buffer_handle_t
 BGFX_C_API void bgfx_set_transient_index_buffer(const bgfx_transient_index_buffer_t* _tib, uint32_t _firstIndex, uint32_t _numIndices);
 
 /**/
-BGFX_C_API void bgfx_set_vertex_buffer(bgfx_vertex_buffer_handle_t _handle, uint32_t _startVertex, uint32_t _numVertices);
+BGFX_C_API void bgfx_set_vertex_buffer(uint8_t _stream, bgfx_vertex_buffer_handle_t _handle, uint32_t _startVertex, uint32_t _numVertices);
 
 /**/
-BGFX_C_API void bgfx_set_dynamic_vertex_buffer(bgfx_dynamic_vertex_buffer_handle_t _handle, uint32_t _startVertex, uint32_t _numVertices);
+BGFX_C_API void bgfx_set_dynamic_vertex_buffer(uint8_t _stream, bgfx_dynamic_vertex_buffer_handle_t _handle, uint32_t _startVertex, uint32_t _numVertices);
 
 /**/
-BGFX_C_API void bgfx_set_transient_vertex_buffer(const bgfx_transient_vertex_buffer_t* _tvb, uint32_t _startVertex, uint32_t _numVertices);
+BGFX_C_API void bgfx_set_transient_vertex_buffer(uint8_t _stream, const bgfx_transient_vertex_buffer_t* _tvb, uint32_t _startVertex, uint32_t _numVertices);
 
 /**/
 BGFX_C_API void bgfx_set_instance_data_buffer(const bgfx_instance_data_buffer_t* _idb, uint32_t _num);

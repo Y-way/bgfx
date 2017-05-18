@@ -209,7 +209,7 @@ VK_IMPORT_DEVICE
 		{ VK_FORMAT_B4G4R4A4_UNORM_PACK16,     VK_FORMAT_B4G4R4A4_UNORM_PACK16,    VK_FORMAT_UNDEFINED,           VK_FORMAT_UNDEFINED                }, // RGBA4
 		{ VK_FORMAT_B5G5R5A1_UNORM_PACK16,     VK_FORMAT_B5G5R5A1_UNORM_PACK16,    VK_FORMAT_UNDEFINED,           VK_FORMAT_UNDEFINED                }, // RGB5A1
 		{ VK_FORMAT_A2R10G10B10_UNORM_PACK32,  VK_FORMAT_A2R10G10B10_UNORM_PACK32, VK_FORMAT_UNDEFINED,           VK_FORMAT_UNDEFINED                }, // RGB10A2
-		{ VK_FORMAT_B10G11R11_UFLOAT_PACK32,   VK_FORMAT_B10G11R11_UFLOAT_PACK32,  VK_FORMAT_UNDEFINED,           VK_FORMAT_UNDEFINED                }, // R11G11B10F
+		{ VK_FORMAT_B10G11R11_UFLOAT_PACK32,   VK_FORMAT_B10G11R11_UFLOAT_PACK32,  VK_FORMAT_UNDEFINED,           VK_FORMAT_UNDEFINED                }, // RG11B10F
 		{ VK_FORMAT_UNDEFINED,                 VK_FORMAT_UNDEFINED,                VK_FORMAT_UNDEFINED,           VK_FORMAT_UNDEFINED                }, // UnknownDepth
 		{ VK_FORMAT_UNDEFINED,                 VK_FORMAT_R16_UNORM,                VK_FORMAT_D16_UNORM,           VK_FORMAT_UNDEFINED                }, // D16
 		{ VK_FORMAT_UNDEFINED,                 VK_FORMAT_X8_D24_UNORM_PACK32,      VK_FORMAT_D24_UNORM_S8_UINT,   VK_FORMAT_UNDEFINED                }, // D24
@@ -986,7 +986,7 @@ VK_IMPORT_INSTANCE
 					{
 						uint8_t support = BGFX_CAPS_FORMAT_TEXTURE_NONE;
 
-						const bool depth = isDepth(TextureFormat::Enum(ii) );
+						const bool depth = bimg::isDepth(bimg::TextureFormat::Enum(ii) );
 						VkFormat fmt = depth
 							? s_textureFormat[ii].m_fmtDsv
 							: s_textureFormat[ii].m_fmt
@@ -1622,14 +1622,6 @@ VK_IMPORT_DEVICE
 				VkCommandBuffer commandBuffer = m_commandBuffers[0];
 				VK_CHECK(vkBeginCommandBuffer(commandBuffer, &cbbi) );
 
-				VkClearValue clearValue[2];
-				clearValue[0].color.float32[0] = 0.0f;
-				clearValue[0].color.float32[1] = 0.0f;
-				clearValue[0].color.float32[2] = 0.0f;
-				clearValue[0].color.float32[3] = 1.0f;
-				clearValue[1].depthStencil.depth   = 0.0f;
-				clearValue[1].depthStencil.stencil = 0;
-
 				VkRenderPassBeginInfo rpbi;
 				rpbi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 				rpbi.pNext = NULL;
@@ -1637,8 +1629,8 @@ VK_IMPORT_DEVICE
 				rpbi.renderArea.offset.x = 0;
 				rpbi.renderArea.offset.y = 0;
 				rpbi.renderArea.extent = m_sci.imageExtent;
-				rpbi.clearValueCount = BX_COUNTOF(clearValue);
-				rpbi.pClearValues    = clearValue;
+				rpbi.clearValueCount = 0;
+				rpbi.pClearValues = NULL;
 
 				setImageMemoryBarrier(commandBuffer
 					, m_backBufferDepthStencilImage
@@ -1927,6 +1919,11 @@ VK_IMPORT_DEVICE
 			return BGFX_RENDERER_VULKAN_NAME;
 		}
 
+		bool isDeviceRemoved() BX_OVERRIDE
+		{
+			return false;
+		}
+
 		void flip(HMD& /*_hmd*/) BX_OVERRIDE
 		{
 			if (VK_NULL_HANDLE != m_swapchain)
@@ -2103,9 +2100,9 @@ VK_IMPORT_DEVICE
 
 		void updateViewName(uint8_t _id, const char* _name) BX_OVERRIDE
 		{
-			bx::strlcpy(&s_viewName[_id][BGFX_CONFIG_MAX_VIEW_NAME_RESERVED]
-				, _name
+			bx::strCopy(&s_viewName[_id][BGFX_CONFIG_MAX_VIEW_NAME_RESERVED]
 				, BX_COUNTOF(s_viewName[0]) - BGFX_CONFIG_MAX_VIEW_NAME_RESERVED
+				, _name
 				);
 		}
 
@@ -2122,6 +2119,8 @@ VK_IMPORT_DEVICE
 		{
 			BX_UNUSED(_handle);
 		}
+
+		void submitBlit(BlitState& _bs, uint16_t _view);
 
 		void submit(Frame* _render, ClearQuad& _clearQuad, TextVideoMemBlitter& _textVideoMemBlitter) BX_OVERRIDE;
 
@@ -2872,7 +2871,6 @@ VK_IMPORT_DEVICE
 
 			VkClearAttachment attachments[BGFX_CONFIG_MAX_FRAME_BUFFERS];
 			uint32_t mrt = 0;
-			attachments[mrt].aspectMask = 0;
 
 			if (true //NULL != m_currentColor
 			&&  BGFX_CLEAR_COLOR & _clear.m_flags)
@@ -2912,6 +2910,7 @@ VK_IMPORT_DEVICE
 			&& (BGFX_CLEAR_DEPTH | BGFX_CLEAR_STENCIL) & _clear.m_flags)
 			{
 				attachments[mrt].colorAttachment = mrt;
+				attachments[mrt].aspectMask = 0;
 				attachments[mrt].aspectMask |= (_clear.m_flags & BGFX_CLEAR_DEPTH  ) ? VK_IMAGE_ASPECT_DEPTH_BIT   : 0;
 				attachments[mrt].aspectMask |= (_clear.m_flags & BGFX_CLEAR_STENCIL) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
 
@@ -3613,6 +3612,15 @@ VK_DESTROY
 	{
 	}
 
+	void RendererContextVK::submitBlit(BlitState& _bs, uint16_t _view)
+	{
+		while (_bs.hasItem(_view) )
+		{
+			const BlitItem& blit = _bs.advance();
+			BX_UNUSED(blit);
+		}
+	}
+
 	void RendererContextVK::submit(Frame* _render, ClearQuad& _clearQuad, TextVideoMemBlitter& _textVideoMemBlitter)
 	{
 		BX_UNUSED(_render, _clearQuad, _textVideoMemBlitter);
@@ -3662,10 +3670,7 @@ VK_DESTROY
 		uint16_t view = UINT16_MAX;
 		FrameBufferHandle fbh = { BGFX_CONFIG_MAX_FRAME_BUFFERS };
 
-		BlitKey blitKey;
-		blitKey.decode(_render->m_blitKeys[0]);
-		uint16_t numBlitItems = _render->m_numBlitItems;
-		uint16_t blitItem = 0;
+		BlitState bs(_render);
 
 		uint32_t blendFactor = 0;
 
@@ -3753,7 +3758,9 @@ VK_DESTROY
 					|| item == numItems
 					;
 
-				const RenderItem& renderItem = _render->m_renderItem[_render->m_sortValues[item] ];
+				const uint32_t itemIdx       = _render->m_sortValues[item];
+				const RenderItem& renderItem = _render->m_renderItem[itemIdx];
+				const RenderBind& renderBind = _render->m_renderItemBind[itemIdx];
 				++item;
 
 				if (viewChanged)
@@ -3823,77 +3830,7 @@ BX_UNUSED(currentSamplerStateIdx);
 
 					prim = s_primInfo[BX_COUNTOF(s_primName)]; // Force primitive type update.
 
-					const uint8_t blitView = SortKey::decodeView(encodedKey);
-					for (; blitItem < numBlitItems && blitKey.m_view <= blitView; blitItem++)
-					{
-						const BlitItem& blit = _render->m_blitItem[blitItem];
-						blitKey.decode(_render->m_blitKeys[blitItem+1]);
-						BX_UNUSED(blit);
-
-//						const TextureD3D12& src = m_textures[blit.m_src.idx];
-//						const TextureD3D12& dst = m_textures[blit.m_dst.idx];
-//
-// 						uint32_t srcWidth  = bx::uint32_min(src.m_width,  blit.m_srcX + blit.m_width)  - blit.m_srcX;
-// 						uint32_t srcHeight = bx::uint32_min(src.m_height, blit.m_srcY + blit.m_height) - blit.m_srcY;
-// 						uint32_t srcDepth  = bx::uint32_min(src.m_depth,  blit.m_srcZ + blit.m_depth)  - blit.m_srcZ;
-// 						uint32_t dstWidth  = bx::uint32_min(dst.m_width,  blit.m_dstX + blit.m_width)  - blit.m_dstX;
-// 						uint32_t dstHeight = bx::uint32_min(dst.m_height, blit.m_dstY + blit.m_height) - blit.m_dstY;
-// 						uint32_t dstDepth  = bx::uint32_min(dst.m_depth,  blit.m_dstZ + blit.m_depth)  - blit.m_dstZ;
-// 						uint32_t width     = bx::uint32_min(srcWidth,  dstWidth);
-// 						uint32_t height    = bx::uint32_min(srcHeight, dstHeight);
-// 						uint32_t depth     = bx::uint32_min(srcDepth,  dstDepth);
-//
-//						if (TextureD3D12::Texture3D == src.m_type)
-//						{
-//							D3D12_BOX box;
-// 							box.left   = blit.m_srcX;
-// 							box.top    = blit.m_srcY;
-// 							box.front  = blit.m_srcZ;
-// 							box.right  = blit.m_srcX + width;
-// 							box.bottom = blit.m_srcY + height;;
-// 							box.back   = blit.m_srcZ + bx::uint32_imax(1, depth);
-//
-//							D3D12_TEXTURE_COPY_LOCATION dstLocation = { dst.m_ptr, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, {{ 0 }} };
-//							D3D12_TEXTURE_COPY_LOCATION srcLocation = { src.m_ptr, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, {{ 0 }} };
-//							m_commandList->CopyTextureRegion(&dstLocation
-//								, blit.m_dstX
-//								, blit.m_dstY
-//								, blit.m_dstZ
-//								, &srcLocation
-//								, &box
-//								);
-//						}
-//						else
-//						{
-//							D3D12_BOX box;
-// 							box.left   = blit.m_srcX;
-// 							box.top    = blit.m_srcY;
-// 							box.front  = 0;
-// 							box.right  = blit.m_srcX + width;
-// 							box.bottom = blit.m_srcY + height;;
-// 							box.back   = 1;
-//
-//							const uint32_t srcZ = TextureD3D12::TextureCube == src.m_type
-//								? blit.m_srcZ
-//								: 0
-//								;
-//							const uint32_t dstZ = TextureD3D12::TextureCube == dst.m_type
-//								? blit.m_dstZ
-//								: 0
-//								;
-//
-//							D3D12_TEXTURE_COPY_LOCATION dstLocation = { dst.m_ptr, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, {{ dstZ*dst.m_numMips+blit.m_dstMip }} };
-//							D3D12_TEXTURE_COPY_LOCATION srcLocation = { src.m_ptr, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, {{ srcZ*src.m_numMips+blit.m_srcMip }} };
-//							bool depthStencil = isDepth(TextureFormat::Enum(src.m_textureFormat) );
-//							m_commandList->CopyTextureRegion(&dstLocation
-//								, blit.m_dstX
-//								, blit.m_dstY
-//								, 0
-//								, &srcLocation
-//								, depthStencil ? NULL : &box
-//								);
-//						}
-					}
+					submitBlit(bs, view);
 				}
 
 				if (isCompute)
@@ -3920,7 +3857,7 @@ BX_UNUSED(currentSamplerStateIdx);
 						currentBindHash = 0;
 					}
 
-//					uint32_t bindHash = bx::hashMurmur2A(compute.m_bind, sizeof(compute.m_bind) );
+//					uint32_t bindHash = bx::hashMurmur2A(renderBind.m_bind, sizeof(renderBind.m_bind) );
 //					if (currentBindHash != bindHash)
 //					{
 //						currentBindHash  = bindHash;
@@ -3933,7 +3870,7 @@ BX_UNUSED(currentSamplerStateIdx);
 //
 //							for (uint32_t ii = 0; ii < BGFX_MAX_COMPUTE_BINDINGS; ++ii)
 //							{
-//								const Binding& bind = compute.m_bind[ii];
+//								const Binding& bind = renderBind.m_bind[ii];
 //								if (invalidHandle != bind.m_idx)
 //								{
 //									switch (bind.m_type)
@@ -4146,7 +4083,7 @@ BX_UNUSED(currentSamplerStateIdx);
 							);
 
 					uint16_t scissor = draw.m_scissor;
-					uint32_t bindHash = bx::hashMurmur2A(draw.m_bind, sizeof(draw.m_bind) );
+					uint32_t bindHash = bx::hashMurmur2A(renderBind.m_bind, sizeof(renderBind.m_bind) );
 					if (currentBindHash != bindHash
 					||  0 != changedStencil
 					|| (hasFactor && blendFactor != draw.m_rgba)
@@ -4172,7 +4109,7 @@ BX_UNUSED(currentSamplerStateIdx);
 //								srvHandle[0].ptr = 0;
 //								for (uint32_t stage = 0; stage < BGFX_CONFIG_MAX_TEXTURE_SAMPLERS; ++stage)
 //								{
-//									const Binding& bind = draw.m_bind[stage];
+//									const Binding& bind = renderBind.m_bind[stage];
 //									if (invalidHandle != bind.m_idx)
 //									{
 //										TextureD3D12& texture = m_textures[bind.m_idx];
@@ -4263,7 +4200,7 @@ BX_UNUSED(currentSamplerStateIdx);
 								restoreScissor = false;
 								VkRect2D rc;
 								rc.offset.x      = viewScissorRect.m_x;
-								rc.offset.x      = viewScissorRect.m_y;
+								rc.offset.y      = viewScissorRect.m_y;
 								rc.extent.width  = viewScissorRect.m_x + viewScissorRect.m_width;
 								rc.extent.height = viewScissorRect.m_y + viewScissorRect.m_height;
 								vkCmdSetScissor(m_commandBuffer, 0, 1, &rc);
@@ -4281,7 +4218,7 @@ BX_UNUSED(currentSamplerStateIdx);
 
 							VkRect2D rc;
 							rc.offset.x      = scissorRect.m_x;
-							rc.offset.x      = scissorRect.m_y;
+							rc.offset.y      = scissorRect.m_y;
 							rc.extent.width  = scissorRect.m_x + scissorRect.m_width;
 							rc.extent.height = scissorRect.m_y + scissorRect.m_height;
 							vkCmdSetScissor(m_commandBuffer, 0, 1, &rc);
@@ -4400,6 +4337,8 @@ BX_UNUSED(currentSamplerStateIdx);
 					}
 				}
 			}
+
+			submitBlit(bs, BGFX_CONFIG_MAX_VIEWS);
 
 //			m_batch.end(m_commandList);
 		}

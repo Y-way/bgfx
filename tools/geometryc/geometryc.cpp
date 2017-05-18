@@ -21,6 +21,9 @@ namespace stl = tinystl;
 #include <forsyth-too/forsythtriangleorderoptimizer.h>
 #include <ib-compress/indexbuffercompression.h>
 
+#define BGFX_GEOMETRYC_VERSION_MAJOR 1
+#define BGFX_GEOMETRYC_VERSION_MINOR 0
+
 #if 0
 #	define BX_TRACE(_format, ...) \
 		do { \
@@ -350,6 +353,23 @@ void write(bx::WriterI* _writer
 	}
 }
 
+inline uint32_t rgbaToAbgr(uint8_t _r, uint8_t _g, uint8_t _b, uint8_t _a)
+{
+	return (uint32_t(_r)<<0)
+		 | (uint32_t(_g)<<8)
+		 | (uint32_t(_b)<<16)
+		 | (uint32_t(_a)<<24)
+		 ;
+}
+
+struct GroupSortByMaterial
+{
+	bool operator()(const Group& _lhs, const Group& _rhs)
+	{
+		return _lhs.m_material < _rhs.m_material;
+	}
+};
+
 void help(const char* _error = NULL)
 {
 	if (NULL != _error)
@@ -358,9 +378,12 @@ void help(const char* _error = NULL)
 	}
 
 	fprintf(stderr
-		, "geometryc, bgfx geometry compiler tool\n"
+		, "geometryc, bgfx geometry compiler tool, version %d.%d.%d.\n"
 		  "Copyright 2011-2017 Branimir Karadzic. All rights reserved.\n"
 		  "License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause\n\n"
+		, BGFX_GEOMETRYC_VERSION_MAJOR
+		, BGFX_GEOMETRYC_VERSION_MINOR
+		, BGFX_API_VERSION
 		);
 
 	fprintf(stderr
@@ -372,6 +395,8 @@ void help(const char* _error = NULL)
 
 		  "\n"
 		  "Options:\n"
+		  "  -h, --help               Help.\n"
+		  "  -v, --version            Version information only.\n"
 		  "  -f <file path>           Input file path.\n"
 		  "  -o <file path>           Output file path.\n"
 		  "  -s, --scale <num>        Scale factor.\n"
@@ -395,26 +420,26 @@ void help(const char* _error = NULL)
 		);
 }
 
-inline uint32_t rgbaToAbgr(uint8_t _r, uint8_t _g, uint8_t _b, uint8_t _a)
-{
-	return (uint32_t(_r)<<0)
-		 | (uint32_t(_g)<<8)
-		 | (uint32_t(_b)<<16)
-		 | (uint32_t(_a)<<24)
-		 ;
-}
-
-struct GroupSortByMaterial
-{
-	bool operator()(const Group& _lhs, const Group& _rhs)
-	{
-		return _lhs.m_material < _rhs.m_material;
-	}
-};
-
 int main(int _argc, const char* _argv[])
 {
 	bx::CommandLine cmdLine(_argc, _argv);
+
+	if (cmdLine.hasArg('v', "version") )
+	{
+		fprintf(stderr
+			, "geometryc, bgfx geometry compiler tool, version %d.%d.%d.\n"
+			, BGFX_GEOMETRYC_VERSION_MAJOR
+			, BGFX_GEOMETRYC_VERSION_MINOR
+			, BGFX_API_VERSION
+			);
+		return EXIT_SUCCESS;
+	}
+
+	if (cmdLine.hasArg('h', "help") )
+	{
+		help();
+		return EXIT_FAILURE;
+	}
 
 	const char* filePath = cmdLine.findOption('f');
 	if (NULL == filePath)
@@ -524,13 +549,13 @@ int main(int _argc, const char* _argv[])
 						index.m_vbc = 0;
 					}
 
-					char* vertex   = argv[edge+1];
-					char* texcoord = strchr(vertex, '/');
+					const char* vertex   = argv[edge+1];
+					char* texcoord = const_cast<char*>(bx::strFind(vertex, '/') );
 					if (NULL != texcoord)
 					{
 						*texcoord++ = '\0';
 
-						char* normal = strchr(texcoord, '/');
+						char* normal = const_cast<char*>(bx::strFind(texcoord, '/') );
 						if (NULL != normal)
 						{
 							*normal++ = '\0';
@@ -860,7 +885,7 @@ int main(int _argc, const char* _argv[])
 
 				if (hasTangent)
 				{
-					calcTangents(vertexData, numVertices, decl, indexData, numIndices);
+					calcTangents(vertexData, uint16_t(numVertices), decl, indexData, numIndices);
 				}
 
 				bx::MemoryWriter memWriter(&memBlock);
@@ -877,7 +902,7 @@ int main(int _argc, const char* _argv[])
 							, prim1.m_numIndices
 							, vertexData + prim1.m_startVertex
 							, numVertices
-							, stride
+							, uint16_t(stride)
 							);
 					}
 				}
@@ -991,7 +1016,7 @@ int main(int _argc, const char* _argv[])
 	{
 		if (hasTangent)
 		{
-			calcTangents(vertexData, numVertices, decl, indexData, numIndices);
+			calcTangents(vertexData, uint16_t(numVertices), decl, indexData, numIndices);
 		}
 
 		bx::MemoryWriter memWriter(&memBlock);
@@ -1008,7 +1033,7 @@ int main(int _argc, const char* _argv[])
 					, prim1.m_numIndices
 					, vertexData + prim1.m_startVertex
 					, numVertices
-					, stride
+					, uint16_t(stride)
 					);
 			}
 		}

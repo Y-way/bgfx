@@ -3,10 +3,10 @@
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
-#include "common.h"
-#include "camera.h"
-#include "bgfx_utils.h"
-#include "imgui/imgui.h"
+#include <common.h>
+#include <camera.h>
+#include <bgfx_utils.h>
+#include <imgui/imgui.h>
 #include <bx/rng.h>
 
 /*
@@ -176,7 +176,7 @@ void screenSpaceQuad(float _textureWidth, float _textureHeight, float _texelHalf
 		vertex[2].m_u = maxu;
 		vertex[2].m_v = maxv;
 
-		bgfx::setVertexBuffer(&vb);
+		bgfx::setVertexBuffer(0, &vb);
 	}
 }
 
@@ -596,14 +596,19 @@ public:
 					, uint16_t(m_height)
 					);
 
-			imguiBeginArea("RSM:", 10, 100, 300, 400);
+			ImGui::Begin("Reflective Shadow Map"
+				, NULL
+				, ImVec2(300.0f, 400.0f)
+				, ImGuiWindowFlags_AlwaysAutoResize
+				);
 
-			imguiSlider("rsm amount", m_rsmAmount, 0.0f, 0.7f, 0.01f);
-			imguiSlider("vpl radius", m_vplRadius, 0.25f, 20.0f, 0.1f);
-			imguiSlider("light azimuth", m_lightAzimuth, 0.0f, 360.0f, 0.01f);
-			imguiSlider("light elevation", m_lightElevation, 35.0f, 90.0f, 0.01f);
+			ImGui::SliderFloat("RSM Amount",      &m_rsmAmount, 0.0f, 0.7f);
+			ImGui::SliderFloat("VPL Radius",      &m_vplRadius, 0.25f, 20.0f);
+			ImGui::SliderFloat("Light Azimuth",   &m_lightAzimuth, 0.0f, 360.0f);
+			ImGui::SliderFloat("Light Elevation", &m_lightElevation, 35.0f, 90.0f);
 
-			imguiEndArea();
+			ImGui::End();
+
 			imguiEndFrame();
 
 			updateLightDir();
