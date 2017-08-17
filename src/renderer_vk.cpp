@@ -332,7 +332,7 @@ VK_IMPORT_DEVICE
 			return;
 		}
 
-		bx::alignedFree(g_allocator, _memory, BX_CONFIG_ALLOCATOR_NATURAL_ALIGNMENT);
+		bx::alignedFree(g_allocator, _memory, 8);
 	}
 
 	static void VKAPI_PTR internalAllocationNotification(void* _userData, size_t _size, VkInternalAllocationType _allocationType, VkSystemAllocationScope _allocationScope)
@@ -725,7 +725,7 @@ VK_IMPORT_DEVICE
 
 			ErrorState::Enum errorState = ErrorState::Default;
 
-			m_fbh.idx = invalidHandle;
+			m_fbh.idx = kInvalidHandle;
 			bx::memSet(m_uniforms, 0, sizeof(m_uniforms) );
 			bx::memSet(&m_resolution, 0, sizeof(m_resolution) );
 
@@ -747,7 +747,7 @@ VK_IMPORT_DEVICE
 
 			if (NULL == m_vulkan1dll)
 			{
-				BX_TRACE("Failed to load vulkan dynamic library.");
+				BX_TRACE("Init error: Failed to load vulkan dynamic library.");
 				goto error;
 			}
 
@@ -763,7 +763,7 @@ VK_IMPORT
 
 			if (!imported)
 			{
-				BX_TRACE("Failed to load shared library functions.");
+				BX_TRACE("Init error: Failed to load shared library functions.");
 				goto error;
 			}
 
@@ -831,7 +831,7 @@ VK_IMPORT
 
 			if (VK_SUCCESS != result)
 			{
-				BX_TRACE("vkCreateInstance failed %d: %s.", result, getName(result) );
+				BX_TRACE("Init error: vkCreateInstance failed %d: %s.", result, getName(result) );
 				goto error;
 			}
 
@@ -847,7 +847,7 @@ VK_IMPORT_INSTANCE
 
 			if (!imported)
 			{
-				BX_TRACE("Failed to load instance functions.");
+				BX_TRACE("Init error: Failed to load instance functions.");
 				goto error;
 			}
 
@@ -882,7 +882,7 @@ VK_IMPORT_INSTANCE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkEnumeratePhysicalDevices failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkEnumeratePhysicalDevices failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -895,7 +895,7 @@ VK_IMPORT_INSTANCE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkEnumeratePhysicalDevices failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkEnumeratePhysicalDevices failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -961,6 +961,8 @@ VK_IMPORT_INSTANCE
 				g_caps.vendorId = uint16_t(m_deviceProperties.vendorID);
 				g_caps.deviceId = uint16_t(m_deviceProperties.deviceID);
 
+				g_caps.limits.maxTextureSize   = m_deviceProperties.limits.maxImageDimension2D;
+				g_caps.limits.maxFBAttachments = uint8_t(bx::uint32_min(m_deviceProperties.limits.maxFragmentOutputAttachments, BGFX_CONFIG_MAX_FRAME_BUFFER_ATTACHMENTS) );
 
 				{
 //					VkFormatProperties fp;
@@ -1086,7 +1088,7 @@ VK_IMPORT_INSTANCE
 
 				if (UINT32_MAX == m_qfiGraphics)
 				{
-					BX_TRACE("Unable to find graphics queue.");
+					BX_TRACE("Init error: Unable to find graphics queue.");
 					goto error;
 				}
 			}
@@ -1145,7 +1147,7 @@ VK_IMPORT_INSTANCE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkCreateDevice failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkCreateDevice failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 			}
@@ -1162,7 +1164,7 @@ VK_IMPORT_DEVICE
 
 			if (!imported)
 			{
-				BX_TRACE("Failed to load device functions.");
+				BX_TRACE("Init error: Failed to load device functions.");
 				goto error;
 			}
 
@@ -1171,7 +1173,7 @@ VK_IMPORT_DEVICE
 
 			m_backBufferDepthStencilFormat =
 				VK_FORMAT_D32_SFLOAT_S8_UINT
-			//	VK_FORMAT_D24_UNORM_S8_UINT
+//				VK_FORMAT_D24_UNORM_S8_UINT
 				;
 
 			{
@@ -1236,7 +1238,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkCreateRenderPass failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkCreateRenderPass failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 			}
@@ -1296,7 +1298,7 @@ VK_IMPORT_DEVICE
 
 			if (VK_SUCCESS != result)
 			{
-				BX_TRACE("vkCreateSurfaceKHR failed %d: %s.", result, getName(result) );
+				BX_TRACE("Init error: vkCreateSurfaceKHR failed %d: %s.", result, getName(result) );
 				goto error;
 			}
 
@@ -1308,7 +1310,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkGetPhysicalDeviceSurfaceSupportKHR failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkGetPhysicalDeviceSurfaceSupportKHR failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1317,7 +1319,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1326,7 +1328,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkGetPhysicalDeviceSurfaceFormatsKHR failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkGetPhysicalDeviceSurfaceFormatsKHR failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1341,7 +1343,7 @@ VK_IMPORT_DEVICE
 				result = vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, m_surface, &numPresentModes, NULL);
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkGetPhysicalDeviceSurfacePresentModesKHR failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkGetPhysicalDeviceSurfacePresentModesKHR failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1375,7 +1377,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkCreateSwapchainKHR failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkCreateSwapchainKHR failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1384,13 +1386,13 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkGetSwapchainImagesKHR failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkGetSwapchainImagesKHR failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
 				if (numSwapchainImages < m_sci.minImageCount)
 				{
-					BX_TRACE("vkGetSwapchainImagesKHR: numSwapchainImages %d, minImageCount %d."
+					BX_TRACE("Init error: vkGetSwapchainImagesKHR: numSwapchainImages %d, minImageCount %d."
 						, numSwapchainImages
 						, m_sci.minImageCount
 						);
@@ -1402,7 +1404,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkGetSwapchainImagesKHR failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkGetSwapchainImagesKHR failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1437,7 +1439,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkCreateImage failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkCreateImage failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1459,7 +1461,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkAllocateMemory failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkAllocateMemory failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1467,7 +1469,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkBindImageMemory failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkBindImageMemory failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1494,7 +1496,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkCreateImageView failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkCreateImageView failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1542,7 +1544,7 @@ VK_IMPORT_DEVICE
 
 					if (VK_SUCCESS != result)
 					{
-						BX_TRACE("vkCreateImageView failed %d: %s.", result, getName(result) );
+						BX_TRACE("Init error: vkCreateImageView failed %d: %s.", result, getName(result) );
 						goto error;
 					}
 
@@ -1551,7 +1553,7 @@ VK_IMPORT_DEVICE
 
 					if (VK_SUCCESS != result)
 					{
-						BX_TRACE("vkCreateFramebuffer failed %d: %s.", result, getName(result) );
+						BX_TRACE("Init error: vkCreateFramebuffer failed %d: %s.", result, getName(result) );
 						goto error;
 					}
 
@@ -1559,7 +1561,7 @@ VK_IMPORT_DEVICE
 
 					if (VK_SUCCESS != result)
 					{
-						BX_TRACE("vkCreateSemaphore failed %d: %s.", result, getName(result) );
+						BX_TRACE("Init error: vkCreateSemaphore failed %d: %s.", result, getName(result) );
 						goto error;
 					}
 
@@ -1578,7 +1580,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkCreateFence failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkCreateFence failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1592,7 +1594,7 @@ VK_IMPORT_DEVICE
 				if (VK_SUCCESS != result)
 				{
 					vkDestroy(m_fence);
-					BX_TRACE("vkCreateCommandPool failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkCreateCommandPool failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1609,7 +1611,7 @@ VK_IMPORT_DEVICE
 				{
 					vkDestroy(m_commandPool);
 					vkDestroy(m_fence);
-					BX_TRACE("vkAllocateCommandBuffers failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkAllocateCommandBuffers failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1695,7 +1697,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkCreateDescriptorPool failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkCreateDescriptorPool failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1709,7 +1711,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkCreateDescriptorSetLayout failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkCreateDescriptorSetLayout failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1725,7 +1727,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkCreatePipelineLayout failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkCreatePipelineLayout failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 
@@ -1739,7 +1741,7 @@ VK_IMPORT_DEVICE
 
 				if (VK_SUCCESS != result)
 				{
-					BX_TRACE("vkCreatePipelineCache failed %d: %s.", result, getName(result) );
+					BX_TRACE("Init error: vkCreatePipelineCache failed %d: %s.", result, getName(result) );
 					goto error;
 				}
 			}
@@ -1909,22 +1911,22 @@ VK_IMPORT_DEVICE
 			unloadRenderDoc(m_renderdocdll);
 		}
 
-		RendererType::Enum getRendererType() const BX_OVERRIDE
+		RendererType::Enum getRendererType() const override
 		{
 			return RendererType::Vulkan;
 		}
 
-		const char* getRendererName() const BX_OVERRIDE
+		const char* getRendererName() const override
 		{
 			return BGFX_RENDERER_VULKAN_NAME;
 		}
 
-		bool isDeviceRemoved() BX_OVERRIDE
+		bool isDeviceRemoved() override
 		{
 			return false;
 		}
 
-		void flip(HMD& /*_hmd*/) BX_OVERRIDE
+		void flip(HMD& /*_hmd*/) override
 		{
 			if (VK_NULL_HANDLE != m_swapchain)
 			{
@@ -1941,140 +1943,140 @@ VK_IMPORT_DEVICE
 			}
 		}
 
-		void createIndexBuffer(IndexBufferHandle _handle, Memory* _mem, uint16_t _flags) BX_OVERRIDE
+		void createIndexBuffer(IndexBufferHandle _handle, Memory* _mem, uint16_t _flags) override
 		{
 			m_indexBuffers[_handle.idx].create(_mem->size, _mem->data, _flags, false);
 		}
 
-		void destroyIndexBuffer(IndexBufferHandle _handle) BX_OVERRIDE
+		void destroyIndexBuffer(IndexBufferHandle _handle) override
 		{
 			m_indexBuffers[_handle.idx].destroy();
 		}
 
-		void createVertexDecl(VertexDeclHandle _handle, const VertexDecl& _decl) BX_OVERRIDE
+		void createVertexDecl(VertexDeclHandle _handle, const VertexDecl& _decl) override
 		{
 			VertexDecl& decl = m_vertexDecls[_handle.idx];
 			bx::memCopy(&decl, &_decl, sizeof(VertexDecl) );
 			dump(decl);
 		}
 
-		void destroyVertexDecl(VertexDeclHandle /*_handle*/) BX_OVERRIDE
+		void destroyVertexDecl(VertexDeclHandle /*_handle*/) override
 		{
 		}
 
-		void createVertexBuffer(VertexBufferHandle _handle, Memory* _mem, VertexDeclHandle _declHandle, uint16_t _flags) BX_OVERRIDE
+		void createVertexBuffer(VertexBufferHandle _handle, Memory* _mem, VertexDeclHandle _declHandle, uint16_t _flags) override
 		{
 			m_vertexBuffers[_handle.idx].create(_mem->size, _mem->data, _declHandle, _flags);
 		}
 
-		void destroyVertexBuffer(VertexBufferHandle _handle) BX_OVERRIDE
+		void destroyVertexBuffer(VertexBufferHandle _handle) override
 		{
 			m_vertexBuffers[_handle.idx].destroy();
 		}
 
-		void createDynamicIndexBuffer(IndexBufferHandle _handle, uint32_t _size, uint16_t _flags) BX_OVERRIDE
+		void createDynamicIndexBuffer(IndexBufferHandle _handle, uint32_t _size, uint16_t _flags) override
 		{
 			m_indexBuffers[_handle.idx].create(_size, NULL, _flags, false);
 		}
 
-		void updateDynamicIndexBuffer(IndexBufferHandle _handle, uint32_t _offset, uint32_t _size, Memory* _mem) BX_OVERRIDE
+		void updateDynamicIndexBuffer(IndexBufferHandle _handle, uint32_t _offset, uint32_t _size, Memory* _mem) override
 		{
 			BX_UNUSED(_handle, _offset, _size, _mem);
 //			m_indexBuffers[_handle.idx].update(m_commandBuffer, _offset, bx::uint32_min(_size, _mem->size), _mem->data);
 		}
 
-		void destroyDynamicIndexBuffer(IndexBufferHandle _handle) BX_OVERRIDE
+		void destroyDynamicIndexBuffer(IndexBufferHandle _handle) override
 		{
 			m_indexBuffers[_handle.idx].destroy();
 		}
 
-		void createDynamicVertexBuffer(VertexBufferHandle _handle, uint32_t _size, uint16_t _flags) BX_OVERRIDE
+		void createDynamicVertexBuffer(VertexBufferHandle _handle, uint32_t _size, uint16_t _flags) override
 		{
 			VertexDeclHandle decl = BGFX_INVALID_HANDLE;
 			m_vertexBuffers[_handle.idx].create(_size, NULL, decl, _flags);
 		}
 
-		void updateDynamicVertexBuffer(VertexBufferHandle _handle, uint32_t _offset, uint32_t _size, Memory* _mem) BX_OVERRIDE
+		void updateDynamicVertexBuffer(VertexBufferHandle _handle, uint32_t _offset, uint32_t _size, Memory* _mem) override
 		{
 			BX_UNUSED(_handle, _offset, _size, _mem);
 //			m_vertexBuffers[_handle.idx].update(m_commandBuffer, _offset, bx::uint32_min(_size, _mem->size), _mem->data);
 		}
 
-		void destroyDynamicVertexBuffer(VertexBufferHandle _handle) BX_OVERRIDE
+		void destroyDynamicVertexBuffer(VertexBufferHandle _handle) override
 		{
 			m_vertexBuffers[_handle.idx].destroy();
 		}
 
-		void createShader(ShaderHandle _handle, Memory* _mem) BX_OVERRIDE
+		void createShader(ShaderHandle _handle, Memory* _mem) override
 		{
 			m_shaders[_handle.idx].create(_mem);
 		}
 
-		void destroyShader(ShaderHandle _handle) BX_OVERRIDE
+		void destroyShader(ShaderHandle _handle) override
 		{
 			m_shaders[_handle.idx].destroy();
 		}
 
-		void createProgram(ProgramHandle _handle, ShaderHandle _vsh, ShaderHandle _fsh) BX_OVERRIDE
+		void createProgram(ProgramHandle _handle, ShaderHandle _vsh, ShaderHandle _fsh) override
 		{
 			m_program[_handle.idx].create(&m_shaders[_vsh.idx], isValid(_fsh) ? &m_shaders[_fsh.idx] : NULL);
 		}
 
-		void destroyProgram(ProgramHandle _handle) BX_OVERRIDE
+		void destroyProgram(ProgramHandle _handle) override
 		{
 			m_program[_handle.idx].destroy();
 		}
 
-		void createTexture(TextureHandle /*_handle*/, Memory* /*_mem*/, uint32_t /*_flags*/, uint8_t /*_skip*/) BX_OVERRIDE
+		void createTexture(TextureHandle /*_handle*/, Memory* /*_mem*/, uint32_t /*_flags*/, uint8_t /*_skip*/) override
 		{
 		}
 
-		void updateTextureBegin(TextureHandle /*_handle*/, uint8_t /*_side*/, uint8_t /*_mip*/) BX_OVERRIDE
+		void updateTextureBegin(TextureHandle /*_handle*/, uint8_t /*_side*/, uint8_t /*_mip*/) override
 		{
 		}
 
-		void updateTexture(TextureHandle /*_handle*/, uint8_t /*_side*/, uint8_t /*_mip*/, const Rect& /*_rect*/, uint16_t /*_z*/, uint16_t /*_depth*/, uint16_t /*_pitch*/, const Memory* /*_mem*/) BX_OVERRIDE
+		void updateTexture(TextureHandle /*_handle*/, uint8_t /*_side*/, uint8_t /*_mip*/, const Rect& /*_rect*/, uint16_t /*_z*/, uint16_t /*_depth*/, uint16_t /*_pitch*/, const Memory* /*_mem*/) override
 		{
 		}
 
-		void updateTextureEnd() BX_OVERRIDE
+		void updateTextureEnd() override
 		{
 		}
 
-		void readTexture(TextureHandle /*_handle*/, void* /*_data*/, uint8_t /*_mip*/) BX_OVERRIDE
+		void readTexture(TextureHandle /*_handle*/, void* /*_data*/, uint8_t /*_mip*/) override
 		{
 		}
 
-		void resizeTexture(TextureHandle /*_handle*/, uint16_t /*_width*/, uint16_t /*_height*/, uint8_t /*_numMips*/) BX_OVERRIDE
+		void resizeTexture(TextureHandle /*_handle*/, uint16_t /*_width*/, uint16_t /*_height*/, uint8_t /*_numMips*/) override
 		{
 		}
 
-		void overrideInternal(TextureHandle /*_handle*/, uintptr_t /*_ptr*/) BX_OVERRIDE
+		void overrideInternal(TextureHandle /*_handle*/, uintptr_t /*_ptr*/) override
 		{
 		}
 
-		uintptr_t getInternal(TextureHandle /*_handle*/) BX_OVERRIDE
+		uintptr_t getInternal(TextureHandle /*_handle*/) override
 		{
 			return 0;
 		}
 
-		void destroyTexture(TextureHandle /*_handle*/) BX_OVERRIDE
+		void destroyTexture(TextureHandle /*_handle*/) override
 		{
 		}
 
-		void createFrameBuffer(FrameBufferHandle /*_handle*/, uint8_t /*_num*/, const Attachment* /*_attachment*/) BX_OVERRIDE
+		void createFrameBuffer(FrameBufferHandle /*_handle*/, uint8_t /*_num*/, const Attachment* /*_attachment*/) override
 		{
 		}
 
-		void createFrameBuffer(FrameBufferHandle /*_handle*/, void* /*_nwh*/, uint32_t /*_width*/, uint32_t /*_height*/, TextureFormat::Enum /*_depthFormat*/) BX_OVERRIDE
+		void createFrameBuffer(FrameBufferHandle /*_handle*/, void* /*_nwh*/, uint32_t /*_width*/, uint32_t /*_height*/, TextureFormat::Enum /*_depthFormat*/) override
 		{
 		}
 
-		void destroyFrameBuffer(FrameBufferHandle /*_handle*/) BX_OVERRIDE
+		void destroyFrameBuffer(FrameBufferHandle /*_handle*/) override
 		{
 		}
 
-		void createUniform(UniformHandle _handle, UniformType::Enum _type, uint16_t _num, const char* _name) BX_OVERRIDE
+		void createUniform(UniformHandle _handle, UniformType::Enum _type, uint16_t _num, const char* _name) override
 		{
 			if (NULL != m_uniforms[_handle.idx])
 			{
@@ -2088,17 +2090,17 @@ VK_IMPORT_DEVICE
 			m_uniformReg.add(_handle, _name, data);
 		}
 
-		void destroyUniform(UniformHandle _handle) BX_OVERRIDE
+		void destroyUniform(UniformHandle _handle) override
 		{
 			BX_FREE(g_allocator, m_uniforms[_handle.idx]);
 			m_uniforms[_handle.idx] = NULL;
 		}
 
-		void requestScreenShot(FrameBufferHandle /*_handle*/, const char* /*_filePath*/) BX_OVERRIDE
+		void requestScreenShot(FrameBufferHandle /*_handle*/, const char* /*_filePath*/) override
 		{
 		}
 
-		void updateViewName(uint8_t _id, const char* _name) BX_OVERRIDE
+		void updateViewName(uint8_t _id, const char* _name) override
 		{
 			bx::strCopy(&s_viewName[_id][BGFX_CONFIG_MAX_VIEW_NAME_RESERVED]
 				, BX_COUNTOF(s_viewName[0]) - BGFX_CONFIG_MAX_VIEW_NAME_RESERVED
@@ -2106,29 +2108,29 @@ VK_IMPORT_DEVICE
 				);
 		}
 
-		void updateUniform(uint16_t _loc, const void* _data, uint32_t _size) BX_OVERRIDE
+		void updateUniform(uint16_t _loc, const void* _data, uint32_t _size) override
 		{
 			bx::memCopy(m_uniforms[_loc], _data, _size);
 		}
 
-		void setMarker(const char* /*_marker*/, uint32_t /*_size*/) BX_OVERRIDE
+		void setMarker(const char* /*_marker*/, uint32_t /*_size*/) override
 		{
 		}
 
-		void invalidateOcclusionQuery(OcclusionQueryHandle _handle) BX_OVERRIDE
+		void invalidateOcclusionQuery(OcclusionQueryHandle _handle) override
 		{
 			BX_UNUSED(_handle);
 		}
 
 		void submitBlit(BlitState& _bs, uint16_t _view);
 
-		void submit(Frame* _render, ClearQuad& _clearQuad, TextVideoMemBlitter& _textVideoMemBlitter) BX_OVERRIDE;
+		void submit(Frame* _render, ClearQuad& _clearQuad, TextVideoMemBlitter& _textVideoMemBlitter) override;
 
-		void blitSetup(TextVideoMemBlitter& /*_blitter*/) BX_OVERRIDE
+		void blitSetup(TextVideoMemBlitter& /*_blitter*/) override
 		{
 		}
 
-		void blitRender(TextVideoMemBlitter& /*_blitter*/, uint32_t /*_numIndices*/) BX_OVERRIDE
+		void blitRender(TextVideoMemBlitter& /*_blitter*/, uint32_t /*_numIndices*/) override
 		{
 		}
 
@@ -3499,18 +3501,18 @@ VK_DESTROY
 			}
 		}
 
-		uint16_t shaderSize;
+		uint32_t shaderSize;
 		bx::read(&reader, shaderSize);
 
 #if 1
 		const void* code = reader.getDataPtr();
 		bx::skip(&reader, shaderSize+1);
 
-		m_code = alloc( ( (shaderSize+3)/4)*4);
+		m_code = alloc( ( ( (shaderSize+3)/4)*4) );
 		bx::memSet(m_code->data, 0, m_code->size);
 		bx::memCopy(m_code->data
 			, code
-			, shaderSize+1
+			, shaderSize
 			);
 #else
 #include "../examples/runtime/shaders/spv/vert.spv.h"
@@ -3535,7 +3537,12 @@ VK_DESTROY
 		smci.flags = 0;
 		smci.codeSize = m_code->size;
 		smci.pCode    = (const uint32_t*)m_code->data;
-		VK_CHECK(vkCreateShaderModule(s_renderVK->m_device, &smci, s_renderVK->m_allocatorCb, &m_module) );
+		VK_CHECK(vkCreateShaderModule(
+			  s_renderVK->m_device
+			, &smci
+			, s_renderVK->m_allocatorCb
+			, &m_module
+			) );
 
 		bx::memSet(m_attrMask, 0, sizeof(m_attrMask) );
 		m_attrMask[Attrib::Position] = UINT16_MAX;
@@ -3660,8 +3667,8 @@ VK_DESTROY
 // 		bool wireframe = !!(_render->m_debug&BGFX_DEBUG_WIREFRAME);
 // 		setDebugWireframe(wireframe);
 
-		uint16_t currentSamplerStateIdx = invalidHandle;
-		uint16_t currentProgramIdx      = invalidHandle;
+		uint16_t currentSamplerStateIdx = kInvalidHandle;
+		uint16_t currentProgramIdx      = kInvalidHandle;
 		uint32_t currentBindHash        = 0;
 		bool     hasPredefined          = false;
 		bool     commandListChanged     = false;
@@ -3780,9 +3787,9 @@ finishAll();
 
 					view = key.m_view;
 					currentPipeline = VK_NULL_HANDLE;
-					currentSamplerStateIdx = invalidHandle;
+					currentSamplerStateIdx = kInvalidHandle;
 BX_UNUSED(currentSamplerStateIdx);
-					currentProgramIdx      = invalidHandle;
+					currentProgramIdx      = kInvalidHandle;
 					hasPredefined          = false;
 
 					fbh = _render->m_fb[view];
@@ -3871,7 +3878,7 @@ BX_UNUSED(currentSamplerStateIdx);
 //							for (uint32_t ii = 0; ii < BGFX_MAX_COMPUTE_BINDINGS; ++ii)
 //							{
 //								const Binding& bind = renderBind.m_bind[ii];
-//								if (invalidHandle != bind.m_idx)
+//								if (kInvalidHandle != bind.m_idx)
 //								{
 //									switch (bind.m_type)
 //									{
@@ -4048,8 +4055,8 @@ BX_UNUSED(currentSamplerStateIdx);
 
 					currentPipeline        = VK_NULL_HANDLE;
 					currentBindHash        = 0;
-					currentSamplerStateIdx = invalidHandle;
-					currentProgramIdx      = invalidHandle;
+					currentSamplerStateIdx = kInvalidHandle;
+					currentProgramIdx      = kInvalidHandle;
 					currentState.clear();
 					currentState.m_scissor = !draw.m_scissor;
 					changedFlags = BGFX_STATE_MASK;
@@ -4110,7 +4117,7 @@ BX_UNUSED(currentSamplerStateIdx);
 //								for (uint32_t stage = 0; stage < BGFX_CONFIG_MAX_TEXTURE_SAMPLERS; ++stage)
 //								{
 //									const Binding& bind = renderBind.m_bind[stage];
-//									if (invalidHandle != bind.m_idx)
+//									if (kInvalidHandle != bind.m_idx)
 //									{
 //										TextureD3D12& texture = m_textures[bind.m_idx];
 //										texture.setState(m_commandList, D3D12_RESOURCE_STATE_GENERIC_READ);

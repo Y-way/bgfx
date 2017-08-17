@@ -164,8 +164,8 @@ public:
         numEntryPoints(0), numErrors(0), numPushConstants(0), recursive(false),
         invocations(TQualifier::layoutNotSet), vertices(TQualifier::layoutNotSet), inputPrimitive(ElgNone), outputPrimitive(ElgNone),
         pixelCenterInteger(false), originUpperLeft(false),
-        vertexSpacing(EvsNone), vertexOrder(EvoNone), pointMode(false), earlyFragmentTests(false), depthLayout(EldNone), depthReplacing(false), blendEquations(0),
-        xfbMode(false), multiStream(false),
+        vertexSpacing(EvsNone), vertexOrder(EvoNone), pointMode(false), earlyFragmentTests(false), postDepthCoverage(false), depthLayout(EldNone), depthReplacing(false),
+        blendEquations(0), xfbMode(false), multiStream(false),
 #ifdef NV_EXTENSIONS
         layoutOverrideCoverage(false),
         geoPassthroughEXT(false),
@@ -177,11 +177,13 @@ public:
         shiftSsboBinding(0),
         shiftUavBinding(0),
         autoMapBindings(false),
+        autoMapLocations(false),
         flattenUniformArrays(false),
         useUnknownFormat(false),
         hlslOffsets(false),
         useStorageBuffer(false),
-        hlslIoMapping(false)
+        hlslIoMapping(false),
+        textureSamplerTransformMode(EShTexSampTransKeep)
     {
         localSize[0] = 1;
         localSize[1] = 1;
@@ -218,9 +220,11 @@ public:
     unsigned int getShiftUavBinding()  const { return shiftUavBinding; }
     void setResourceSetBinding(const std::vector<std::string>& shift) { resourceSetBinding = shift; }
     const std::vector<std::string>& getResourceSetBinding() const { return resourceSetBinding; }
-    void setAutoMapBindings(bool map)               { autoMapBindings = map; }
+    void setAutoMapBindings(bool map)           { autoMapBindings = map; }
     bool getAutoMapBindings()             const { return autoMapBindings; }
-    void setFlattenUniformArrays(bool flatten)      { flattenUniformArrays = flatten; }
+    void setAutoMapLocations(bool map)          { autoMapLocations = map; }
+    bool getAutoMapLocations()            const { return autoMapLocations; }
+    void setFlattenUniformArrays(bool flatten)  { flattenUniformArrays = flatten; }
     bool getFlattenUniformArrays()        const { return flattenUniformArrays; }
     void setNoStorageFormat(bool b)             { useUnknownFormat = b; }
     bool getNoStorageFormat()             const { return useUnknownFormat; }
@@ -230,6 +234,7 @@ public:
     bool usingStorageBuffer() const { return useStorageBuffer; }
     void setHlslIoMapping(bool b) { hlslIoMapping = b; }
     bool usingHlslIoMapping()     { return hlslIoMapping; }
+    void setTextureSamplerTransformMode(EShTextureSamplerTransformMode mode) { textureSamplerTransformMode = mode; }
 
     void setVersion(int v) { version = v; }
     int getVersion() const { return version; }
@@ -271,8 +276,8 @@ public:
     TIntermAggregate* makeAggregate(const TSourceLoc&);
     TIntermTyped* setAggregateOperator(TIntermNode*, TOperator, const TType& type, TSourceLoc);
     bool areAllChildConst(TIntermAggregate* aggrNode);
-    TIntermTyped* addSelection(TIntermTyped* cond, TIntermNodePair code, const TSourceLoc&);
-    TIntermTyped* addSelection(TIntermTyped* cond, TIntermTyped* trueBlock, TIntermTyped* falseBlock, const TSourceLoc&);
+    TIntermTyped* addSelection(TIntermTyped* cond, TIntermNodePair code, const TSourceLoc&, TSelectionControl = ESelectionControlNone);
+    TIntermTyped* addSelection(TIntermTyped* cond, TIntermTyped* trueBlock, TIntermTyped* falseBlock, const TSourceLoc&, TSelectionControl = ESelectionControlNone);
     TIntermTyped* addComma(TIntermTyped* left, TIntermTyped* right, const TSourceLoc&);
     TIntermTyped* addMethod(TIntermTyped*, const TType&, const TString*, const TSourceLoc&);
     TIntermConstantUnion* addConstantUnion(const TConstUnionArray&, const TType&, const TSourceLoc&, bool literal = false) const;
@@ -280,6 +285,11 @@ public:
     TIntermConstantUnion* addConstantUnion(unsigned int, const TSourceLoc&, bool literal = false) const;
     TIntermConstantUnion* addConstantUnion(long long, const TSourceLoc&, bool literal = false) const;
     TIntermConstantUnion* addConstantUnion(unsigned long long, const TSourceLoc&, bool literal = false) const;
+#ifdef AMD_EXTENSIONS
+    TIntermConstantUnion* addConstantUnion(short, const TSourceLoc&, bool literal = false) const;
+    TIntermConstantUnion* addConstantUnion(unsigned short, const TSourceLoc&, bool literal = false) const;
+    
+#endif
     TIntermConstantUnion* addConstantUnion(bool, const TSourceLoc&, bool literal = false) const;
     TIntermConstantUnion* addConstantUnion(double, TBasicType, const TSourceLoc&, bool literal = false) const;
     TIntermConstantUnion* addConstantUnion(const TString*, const TSourceLoc&, bool literal = false) const;
@@ -393,6 +403,8 @@ public:
     bool getPixelCenterInteger() const { return pixelCenterInteger; }
     void setEarlyFragmentTests() { earlyFragmentTests = true; }
     bool getEarlyFragmentTests() const { return earlyFragmentTests; }
+    void setPostDepthCoverage() { postDepthCoverage = true; }
+    bool getPostDepthCoverage() const { return postDepthCoverage; }
     bool setDepth(TLayoutDepth d)
     {
         if (depthLayout != EldNone)
@@ -446,6 +458,11 @@ public:
         return semanticNameSet.insert(name).first->c_str();
     }
 
+    void setSourceFile(const char* file) { sourceFile = file; }
+    const std::string& getSourceFile() const { return sourceFile; }
+    void addSourceText(const char* text) { sourceText = sourceText + text; }
+    const std::string& getSourceText() const { return sourceText; }
+
     const char* const implicitThisName = "@this";
 
 protected:
@@ -469,6 +486,7 @@ protected:
     void pushSelector(TIntermSequence&, const TVectorSelector&, const TSourceLoc&);
     void pushSelector(TIntermSequence&, const TMatrixSelector&, const TSourceLoc&);
     bool specConstantPropagates(const TIntermTyped&, const TIntermTyped&);
+    void performTextureUpgradeAndSamplerRemovalTransformation(TIntermNode* root);
 
     const EShLanguage language;  // stage, known at construction time
     EShSource source;            // source language, known a bit later
@@ -497,6 +515,7 @@ protected:
     int localSize[3];
     int localSizeSpecId[3];
     bool earlyFragmentTests;
+    bool postDepthCoverage;
     TLayoutDepth depthLayout;
     bool depthReplacing;
     int blendEquations;        // an 'or'ing of masks of shifts of TBlendEquationShift
@@ -516,6 +535,7 @@ protected:
     unsigned int shiftUavBinding;
     std::vector<std::string> resourceSetBinding;
     bool autoMapBindings;
+    bool autoMapLocations;
     bool flattenUniformArrays;
     bool useUnknownFormat;
     bool hlslOffsets;
@@ -531,6 +551,12 @@ protected:
     std::vector<TXfbBuffer> xfbBuffers;     // all the data we need to track per xfb buffer
     std::unordered_set<int> usedConstantId; // specialization constant ids used
     std::set<TString> semanticNameSet;
+
+    EShTextureSamplerTransformMode textureSamplerTransformMode;
+
+    // source code of shader, useful as part of debug information
+    std::string sourceFile;
+    std::string sourceText;
 
 private:
     void operator=(TIntermediate&); // prevent assignments

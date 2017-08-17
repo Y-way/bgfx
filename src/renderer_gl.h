@@ -935,9 +935,11 @@ typedef uint64_t GLuint64;
 #	define GL_LINE_SMOOTH 0x0B20
 #endif // GL_LINE_SMOOTH
 
-#if BX_PLATFORM_NACL
-#	include "glcontext_ppapi.h"
-#elif BX_PLATFORM_WINDOWS
+#ifndef GL_TEXTURE_LOD_BIAS
+#	define GL_TEXTURE_LOD_BIAS 0x8501
+#endif // GL_TEXTURE_LOD_BIAS
+
+#if BX_PLATFORM_WINDOWS
 #	include <windows.h>
 #elif BX_PLATFORM_LINUX || BX_PLATFORM_BSD
 #	include "glcontext_glx.h"
@@ -996,87 +998,6 @@ namespace bgfx { namespace gl
 #define GL_IMPORT_TYPEDEFS 1
 #define GL_IMPORT(_optional, _proto, _func, _import) extern _proto _func
 #include "glimports.h"
-
-	class VaoStateCache
-	{
-	public:
-		GLuint add(uint32_t _hash)
-		{
-			invalidate(_hash);
-
-			GLuint arrayId;
-			GL_CHECK(glGenVertexArrays(1, &arrayId) );
-
-			m_hashMap.insert(stl::make_pair(_hash, arrayId) );
-
-			return arrayId;
-		}
-
-		GLuint find(uint32_t _hash)
-		{
-			HashMap::iterator it = m_hashMap.find(_hash);
-			if (it != m_hashMap.end() )
-			{
-				return it->second;
-			}
-
-			return UINT32_MAX;
-		}
-
-		void invalidate(uint32_t _hash)
-		{
-			GL_CHECK(glBindVertexArray(0) );
-
-			HashMap::iterator it = m_hashMap.find(_hash);
-			if (it != m_hashMap.end() )
-			{
-				GL_CHECK(glDeleteVertexArrays(1, &it->second) );
-				m_hashMap.erase(it);
-			}
-		}
-
-		void invalidate()
-		{
-			GL_CHECK(glBindVertexArray(0) );
-
-			for (HashMap::iterator it = m_hashMap.begin(), itEnd = m_hashMap.end(); it != itEnd; ++it)
-			{
-				GL_CHECK(glDeleteVertexArrays(1, &it->second) );
-			}
-			m_hashMap.clear();
-		}
-
-		uint32_t getCount() const
-		{
-			return uint32_t(m_hashMap.size() );
-		}
-
-	private:
-		typedef stl::unordered_map<uint32_t, GLuint> HashMap;
-		HashMap m_hashMap;
-	};
-
-	class VaoCacheRef
-	{
-	public:
-		void add(uint32_t _hash)
-		{
-			m_vaoSet.insert(_hash);
-		}
-
-		void invalidate(VaoStateCache& _vaoCache)
-		{
-			for (VaoSet::iterator it = m_vaoSet.begin(), itEnd = m_vaoSet.end(); it != itEnd; ++it)
-			{
-				_vaoCache.invalidate(*it);
-			}
-
-			m_vaoSet.clear();
-		}
-
-		typedef stl::unordered_set<uint32_t> VaoSet;
-		VaoSet m_vaoSet;
-	};
 
 	class SamplerStateCache
 	{
@@ -1173,14 +1094,8 @@ namespace bgfx { namespace gl
 
 		void destroy();
 
-		void add(uint32_t _hash)
-		{
-			m_vcref.add(_hash);
-		}
-
 		GLuint m_id;
 		uint32_t m_size;
-		VaoCacheRef m_vcref;
 		uint16_t m_flags;
 	};
 
@@ -1227,16 +1142,10 @@ namespace bgfx { namespace gl
 
 		void destroy();
 
-		void add(uint32_t _hash)
-		{
-			m_vcref.add(_hash);
-		}
-
 		GLuint m_id;
 		GLenum m_target;
 		uint32_t m_size;
 		VertexDeclHandle m_decl;
-		VaoCacheRef m_vcref;
 	};
 
 	struct TextureGL
@@ -1365,11 +1274,6 @@ namespace bgfx { namespace gl
 			}
 		}
 
-		void add(uint32_t _hash)
-		{
-			m_vcref.add(_hash);
-		}
-
 		GLuint m_id;
 
 		uint8_t m_unboundUsedAttrib[Attrib::Count]; // For tracking unbound used attributes between begin()/end().
@@ -1384,7 +1288,6 @@ namespace bgfx { namespace gl
 		UniformBuffer* m_constantBuffer;
 		PredefinedUniform m_predefined[PredefinedUniform::Count];
 		uint8_t m_numPredefined;
-		VaoCacheRef m_vcref;
 	};
 
 	struct TimerQueryGL
@@ -1515,6 +1418,45 @@ namespace bgfx { namespace gl
 
 		Query m_query[BGFX_CONFIG_MAX_OCCLUSION_QUERIES];
 		bx::RingBufferControl m_control;
+	};
+
+	class LineReader : public bx::ReaderI
+	{
+	public:
+		LineReader(const void* _str)
+			: m_str( (const char*)_str)
+			, m_pos(0)
+			, m_size(bx::strLen( (const char*)_str) )
+		{
+		}
+
+		virtual int32_t read(void* _data, int32_t _size, bx::Error* _err) override
+		{
+			if (m_str[m_pos] == '\0'
+			||  m_pos == m_size)
+			{
+				BX_ERROR_SET(_err, BX_ERROR_READERWRITER_EOF, "LineReader: EOF.");
+				return 0;
+			}
+
+			uint32_t pos = m_pos;
+			const char* str = &m_str[pos];
+			const char* nl = bx::strnl(str);
+			pos += (uint32_t)(nl - str);
+
+			const char* eol = &m_str[pos];
+
+			uint32_t size = bx::uint32_min(uint32_t(eol - str), _size);
+
+			bx::memCopy(_data, str, size);
+			m_pos += size;
+
+			return size;
+		}
+
+		const char* m_str;
+		uint32_t m_pos;
+		uint32_t m_size;
 	};
 
 } /* namespace gl */ } // namespace bgfx

@@ -28,7 +28,7 @@ namespace bgfx
 
 		const BlitItem& advance()
 		{
-			const BlitItem& bi = m_frame->m_blitItem[m_item];
+			const BlitItem& bi = m_frame->m_blitItem[m_key.m_item];
 
 			++m_item;
 			m_key.decode(m_frame->m_blitKeys[m_item]);
@@ -107,11 +107,11 @@ namespace bgfx
 		}
 
 		template<uint16_t mtxRegs, typename RendererContext, typename Program, typename Draw>
-		void setPredefined(RendererContext* _renderer, uint16_t _view, uint8_t _eye, Program& _program, const Frame* _frame, const Draw& _draw)
+		void setPredefined(RendererContext* _renderer, uint16_t _view, uint8_t _eye, const Program& _program, const Frame* _frame, const Draw& _draw)
 		{
 			for (uint32_t ii = 0, num = _program.m_numPredefined; ii < num; ++ii)
 			{
-				PredefinedUniform& predefined = _program.m_predefined[ii];
+				const PredefinedUniform& predefined = _program.m_predefined[ii];
 				uint8_t flags = predefined.m_type&BGFX_UNIFORM_FRAGMENTBIT;
 				switch (predefined.m_type&(~BGFX_UNIFORM_FRAGMENTBIT) )
 				{
