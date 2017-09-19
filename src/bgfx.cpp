@@ -865,17 +865,17 @@ namespace bgfx
 
 		m_key.m_view = _id;
 
-		bool key1 = false;
+		SortKey::Enum type = SortKey::SortProgram;
 		switch (s_ctx->m_viewMode[_id])
 		{
-		case ViewMode::Sequential:      m_key.m_seq   = s_ctx->m_seq[_id];              break;
-		case ViewMode::DepthAscending:  m_key.m_depth = (uint32_t)_depth;  key1 = true; break;
-		case ViewMode::DepthDescending: m_key.m_depth = (uint32_t)-_depth; key1 = true; break;
-		default:                                                                        break;
+		case ViewMode::Sequential:      m_key.m_seq   = s_ctx->m_seq[_id]; type = SortKey::SortSequence; break;
+		case ViewMode::DepthAscending:  m_key.m_depth = (uint32_t)_depth;  type = SortKey::SortDepth;    break;
+		case ViewMode::DepthDescending: m_key.m_depth = (uint32_t)-_depth; type = SortKey::SortDepth;    break;
+		default: break;
 		}
 		s_ctx->m_seq[_id]++;
 
-		uint64_t key = m_key.encodeDraw(key1);
+		uint64_t key = m_key.encodeDraw(type);
 		m_sortKeys[m_num]   = key;
 		m_sortValues[m_num] = m_numRenderItems;
 		++m_num;
@@ -1159,10 +1159,9 @@ namespace bgfx
 		BX_TRACE("\t   Draw bit %016" PRIx64, SORT_KEY_DRAW_BIT);
 
 		BX_TRACE("");
-		BX_TRACE("\tD  Type     %016" PRIx64, SORT_KEY_DRAW_TYPE_BIT);
+		BX_TRACE("\tD  Type     %016" PRIx64, SORT_KEY_DRAW_TYPE_MASK);
 
 		BX_TRACE("");
-		BX_TRACE("\tD0 Seq      %016" PRIx64, SORT_KEY_DRAW_0_SEQ_MASK);
 		BX_TRACE("\tD0 Trans    %016" PRIx64, SORT_KEY_DRAW_0_TRANS_MASK);
 		BX_TRACE("\tD0 Program  %016" PRIx64, SORT_KEY_DRAW_0_PROGRAM_MASK);
 		BX_TRACE("\tD0 Depth    %016" PRIx64, SORT_KEY_DRAW_0_DEPTH_MASK);
@@ -1171,6 +1170,11 @@ namespace bgfx
 		BX_TRACE("\tD1 Depth    %016" PRIx64, SORT_KEY_DRAW_1_DEPTH_MASK);
 		BX_TRACE("\tD1 Trans    %016" PRIx64, SORT_KEY_DRAW_1_TRANS_MASK);
 		BX_TRACE("\tD1 Program  %016" PRIx64, SORT_KEY_DRAW_1_PROGRAM_MASK);
+
+		BX_TRACE("");
+		BX_TRACE("\tD2 Seq      %016" PRIx64, SORT_KEY_DRAW_2_SEQ_MASK);
+		BX_TRACE("\tD2 Trans    %016" PRIx64, SORT_KEY_DRAW_2_TRANS_MASK);
+		BX_TRACE("\tD2 Program  %016" PRIx64, SORT_KEY_DRAW_2_PROGRAM_MASK);
 
 		BX_TRACE("");
 		BX_TRACE("\t C Seq      %016" PRIx64, SORT_KEY_COMPUTE_SEQ_MASK);
@@ -1511,23 +1515,41 @@ namespace bgfx
 								);                                                                    \
 							for (uint16_t ii = 0, num = _handleAlloc.getNumHandles(); ii < num; ++ii) \
 							{                                                                         \
-								BX_TRACE("\t%3d: %d", ii, _handleAlloc.getHandleAt(ii) );             \
+								BX_TRACE("\t%3d: %4d", ii, _handleAlloc.getHandleAt(ii) );            \
 							}                                                                         \
 						}                                                                             \
 					BX_MACRO_BLOCK_END
 
-			CHECK_HANDLE_LEAK(m_dynamicIndexBufferHandle);
-			CHECK_HANDLE_LEAK(m_dynamicVertexBufferHandle);
-			CHECK_HANDLE_LEAK(m_indexBufferHandle);
-			CHECK_HANDLE_LEAK(m_vertexDeclHandle);
-			CHECK_HANDLE_LEAK(m_vertexBufferHandle);
-			CHECK_HANDLE_LEAK(m_shaderHandle);
-			CHECK_HANDLE_LEAK(m_programHandle);
-			CHECK_HANDLE_LEAK(m_textureHandle);
-			CHECK_HANDLE_LEAK(m_frameBufferHandle);
-			CHECK_HANDLE_LEAK(m_uniformHandle);
-			CHECK_HANDLE_LEAK(m_occlusionQueryHandle);
+#define CHECK_HANDLE_LEAK_NAME(_handleAlloc, _type, _ref)                                             \
+					BX_MACRO_BLOCK_BEGIN                                                              \
+						if (0 != _handleAlloc.getNumHandles() )                                       \
+						{                                                                             \
+							BX_TRACE("LEAK: " #_handleAlloc " %d (max: %d)"                           \
+								, _handleAlloc.getNumHandles()                                        \
+								, _handleAlloc.getMaxHandles()                                        \
+								);                                                                    \
+							for (uint16_t ii = 0, num = _handleAlloc.getNumHandles(); ii < num; ++ii) \
+							{                                                                         \
+								uint16_t idx = _handleAlloc.getHandleAt(ii);                          \
+								const _type& ref = _ref[idx]; BX_UNUSED(ref);                         \
+								BX_TRACE("\t%3d: %4d %s", ii, idx, ref.m_name.getPtr() );             \
+							}                                                                         \
+						}                                                                             \
+					BX_MACRO_BLOCK_END
+
+			CHECK_HANDLE_LEAK     (m_dynamicIndexBufferHandle                          );
+			CHECK_HANDLE_LEAK     (m_dynamicVertexBufferHandle                         );
+			CHECK_HANDLE_LEAK     (m_indexBufferHandle                                 );
+			CHECK_HANDLE_LEAK     (m_vertexDeclHandle                                  );
+			CHECK_HANDLE_LEAK     (m_vertexBufferHandle                                );
+			CHECK_HANDLE_LEAK_NAME(m_shaderHandle,             ShaderRef,  m_shaderRef );
+			CHECK_HANDLE_LEAK     (m_programHandle                                     );
+			CHECK_HANDLE_LEAK_NAME(m_textureHandle,            TextureRef, m_textureRef);
+			CHECK_HANDLE_LEAK     (m_frameBufferHandle                                 );
+			CHECK_HANDLE_LEAK_NAME(m_uniformHandle,            UniformRef, m_uniformRef);
+			CHECK_HANDLE_LEAK     (m_occlusionQueryHandle                              );
 #undef CHECK_HANDLE_LEAK
+#undef CHECK_HANDLE_LEAK_NAME
 		}
 	}
 
@@ -2895,7 +2917,7 @@ error:
 	{
 		BGFX_CHECK_MAIN_THREAD();
 		BX_CHECK(NULL != _mem, "_mem can't be NULL");
-		BX_CHECK(0 != _decl.m_stride, "Invalid VertexDecl.");
+		BX_CHECK(isValid(_decl), "Invalid VertexDecl.");
 		return s_ctx->createVertexBuffer(_mem, _decl, _flags);
 	}
 
@@ -2934,7 +2956,7 @@ error:
 	DynamicVertexBufferHandle createDynamicVertexBuffer(uint32_t _num, const VertexDecl& _decl, uint16_t _flags)
 	{
 		BGFX_CHECK_MAIN_THREAD();
-		BX_CHECK(0 != _decl.m_stride, "Invalid VertexDecl.");
+		BX_CHECK(isValid(_decl), "Invalid VertexDecl.");
 		return s_ctx->createDynamicVertexBuffer(_num, _decl, _flags);
 	}
 
@@ -2942,7 +2964,7 @@ error:
 	{
 		BGFX_CHECK_MAIN_THREAD();
 		BX_CHECK(NULL != _mem, "_mem can't be NULL");
-		BX_CHECK(0 != _decl.m_stride, "Invalid VertexDecl.");
+		BX_CHECK(isValid(_decl), "Invalid VertexDecl.");
 		return s_ctx->createDynamicVertexBuffer(_mem, _decl, _flags);
 	}
 
@@ -2970,7 +2992,7 @@ error:
 	{
 		BGFX_CHECK_MAIN_THREAD();
 		BX_CHECK(0 < _num, "Requesting 0 vertices.");
-		BX_CHECK(0 != _decl.m_stride, "Invalid VertexDecl.");
+		BX_CHECK(isValid(_decl), "Invalid VertexDecl.");
 		return s_ctx->getAvailTransientVertexBuffer(_num, _decl.m_stride);
 	}
 
@@ -2999,7 +3021,7 @@ error:
 		BX_CHECK(NULL != _tvb, "_tvb can't be NULL");
 		BX_CHECK(0 < _num, "Requesting 0 vertices.");
 		BX_CHECK(UINT16_MAX >= _num, "Requesting %d vertices (max: %d).", _num, UINT16_MAX);
-		BX_CHECK(0 != _decl.m_stride, "Invalid VertexDecl.");
+		BX_CHECK(isValid(_decl), "Invalid VertexDecl.");
 		s_ctx->allocTransientVertexBuffer(_tvb, _num, _decl);
 		BX_CHECK(_num == _tvb->size / _decl.m_stride, "Failed to allocate transient vertex buffer (requested %d, available %d). Use bgfx::checkAvailTransient* functions to ensure availability."
 			, _num

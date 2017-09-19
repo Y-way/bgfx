@@ -70,6 +70,13 @@ void showExampleDialog(entry::AppI* _app, const char* _errorText)
 			cmdExec(command);
 		}
 
+		const bgfx::Caps* caps = bgfx::getCaps();
+		if (0 != (caps->supported & BGFX_CAPS_GRAPHICS_DEBUGGER) )
+		{
+			ImGui::SameLine();
+			ImGui::Text(ICON_FA_SNOWFLAKE_O);
+		}
+
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(3.0f, 3.0f) );
 
 		if (ImGui::Button(ICON_FA_REPEAT " Restart" ) )
@@ -123,6 +130,33 @@ void showExampleDialog(entry::AppI* _app, const char* _errorText)
 		if (ImGui::Combo("Renderer", &current, items, num) )
 		{
 			cmdExec("app restart");
+		}
+
+		num = caps->numGPUs;
+		if (0 != num)
+		{
+			current = 0;
+			for (uint8_t ii = 0; ii < num; ++ii)
+			{
+				const bgfx::Caps::GPU& gpu = caps->gpu[ii];
+
+				items[ii] = gpu.vendorId == BGFX_PCI_ID_AMD    ? "AMD"
+						  : gpu.vendorId == BGFX_PCI_ID_INTEL  ? "Intel"
+						  : gpu.vendorId == BGFX_PCI_ID_NVIDIA ? "nVidia"
+						  : "Unknown?"
+						  ;
+
+				if (caps->vendorId == gpu.vendorId
+				&&  caps->deviceId == gpu.deviceId)
+				{
+					current = ii;
+				}
+			}
+
+			if (ImGui::Combo("GPU", &current, items, num) )
+			{
+				cmdExec("app restart");
+			}
 		}
 	}
 #endif // 0
