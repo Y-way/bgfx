@@ -37,9 +37,8 @@
 #ifndef _COMMON_INCLUDED_
 #define _COMMON_INCLUDED_
 
-#if (defined(_MSC_VER) && _MSC_VER < 1900 /*vs2015*/) // || defined MINGW_HAS_SECURE_API
+#if (defined(_MSC_VER) && _MSC_VER < 1900 /*vs2015*/) || defined MINGW_HAS_SECURE_API
     #include <basetsd.h>
-    #define snprintf sprintf_s
     #define safe_vsprintf(buf,max,format,args) vsnprintf_s((buf), (max), (max), (format), (args))
 #elif defined (solaris)
     #define safe_vsprintf(buf,max,format,args) vsnprintf((buf), (max), (format), (args))
@@ -51,7 +50,7 @@
     #define UINT_PTR uintptr_t
 #endif
 
-#if defined(__ANDROID__) || _MSC_VER < 1700
+#if defined(__ANDROID__) || (defined(_MSC_VER) && _MSC_VER < 1700)
 #include <sstream>
 namespace std {
 template<typename T>
@@ -99,6 +98,10 @@ inline long long int atoll (const char* str)
 #include <string>
 #include <cstdio>
 #include <cassert>
+
+#if (defined(_MSC_VER) && _MSC_VER < 1900 /*vs2015*/) || defined MINGW_HAS_SECURE_API
+    #define snprintf sprintf_s
+#endif
 
 #include "PoolAlloc.h"
 
@@ -155,7 +158,7 @@ inline TString* NewPoolTString(const char* s)
     return new(memory) TString(s);
 }
 
-template<class T> inline T* NewPoolObject(T)
+template<class T> inline T* NewPoolObject(T*)
 {
     return new(GetThreadPoolAllocator().allocate(sizeof(T))) T;
 }
@@ -240,7 +243,10 @@ struct TSourceLoc {
     int column;
 };
 
-typedef TMap<TString, TString> TPragmaTable;
+class TPragmaTable : public TMap<TString, TString> {
+public:
+    POOL_ALLOCATOR_NEW_DELETE(GetThreadPoolAllocator())
+};
 
 const int MaxTokenLength = 1024;
 

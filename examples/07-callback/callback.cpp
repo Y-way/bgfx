@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -110,6 +110,18 @@ struct BgfxCallback : public bgfx::CallbackI
 	{
 		bx::debugPrintf("%s (%d): ", _filePath, _line);
 		bx::debugPrintfVargs(_format, _argList);
+	}
+
+	virtual void profilerBegin(const char* /*_name*/, uint32_t /*_abgr*/, const char* /*_filePath*/, uint16_t /*_line*/) override
+	{
+	}
+
+	virtual void profilerBeginLiteral(const char* /*_name*/, uint32_t /*_abgr*/, const char* /*_filePath*/, uint16_t /*_line*/) override
+	{
+	}
+
+	virtual void profilerEnd() override
+	{
 	}
 
 	virtual uint32_t cacheReadSize(uint64_t _id) override

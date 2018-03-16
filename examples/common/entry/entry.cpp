@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -240,7 +240,11 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 			if (_argc > arg)
 			{
 				_flags &= ~_bit;
-				_flags |= bx::toBool(_argv[arg]) ? _bit : 0;
+
+				bool set = false;
+				bx::fromString(&set, _argv[arg]);
+
+				_flags |= set ? _bit : 0;
 			}
 			else
 			{
@@ -255,9 +259,19 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 
 	int cmdMouseLock(CmdContext* /*_context*/, void* /*_userData*/, int _argc, char const* const* _argv)
 	{
-		if (_argc > 1)
+		if (1 < _argc)
 		{
-			inputSetMouseLock(_argc > 1 ? bx::toBool(_argv[1]) : !inputIsMouseLocked() );
+			bool set = false;
+			if (2 < _argc)
+			{
+				bx::fromString(&set, _argv[1]);
+				inputSetMouseLock(set);
+			}
+			else
+			{
+				inputSetMouseLock(!inputIsMouseLocked() );
+			}
+
 			return bx::kExitSuccess;
 		}
 
@@ -638,6 +652,8 @@ restart:
 		return result;
 	}
 
+	WindowState s_window[ENTRY_CONFIG_MAX_WINDOWS];
+
 	bool processEvents(uint32_t& _width, uint32_t& _height, uint32_t& _debug, uint32_t& _reset, MouseState* _mouse)
 	{
 		s_debug = _debug;
@@ -718,6 +734,11 @@ restart:
 				case Event::Size:
 					{
 						const SizeEvent* size = static_cast<const SizeEvent*>(ev);
+						WindowState& win = s_window[0];
+						win.m_handle = size->m_handle;
+						win.m_width  = size->m_width;
+						win.m_height = size->m_height;
+
 						handle  = size->m_handle;
 						_width  = size->m_width;
 						_height = size->m_height;
@@ -729,6 +750,13 @@ restart:
 					break;
 
 				case Event::Suspend:
+					break;
+
+				case Event::DropFile:
+					{
+						const DropFileEvent* drop = static_cast<const DropFileEvent*>(ev);
+						DBG("%s", drop->m_filePath.get() );
+					}
 					break;
 
 				default:
@@ -749,14 +777,12 @@ restart:
 		}
 
 		_debug = s_debug;
-		
+
 		s_width = _width;
 		s_height = _height;
 
 		return s_exit;
 	}
-
-	WindowState s_window[ENTRY_CONFIG_MAX_WINDOWS];
 
 	bool processWindowEvents(WindowState& _state, uint32_t& _debug, uint32_t& _reset)
 	{
@@ -766,6 +792,7 @@ restart:
 		WindowHandle handle = { UINT16_MAX };
 
 		bool mouseLock = inputIsMouseLocked();
+		bool clearDropFile = true;
 
 		const Event* ev;
 		do
@@ -886,6 +913,14 @@ restart:
 				case Event::Suspend:
 					break;
 
+				case Event::DropFile:
+					{
+						const DropFileEvent* drop = static_cast<const DropFileEvent*>(ev);
+						win.m_dropFile = drop->m_filePath;
+						clearDropFile = false;
+					}
+					break;
+
 				default:
 					break;
 				}
@@ -897,7 +932,12 @@ restart:
 
 		if (isValid(handle) )
 		{
-			const WindowState& win = s_window[handle.idx];
+			WindowState& win = s_window[handle.idx];
+			if (clearDropFile)
+			{
+				win.m_dropFile.clear();
+			}
+
 			_state = win;
 
 			if (handle.idx == 0)
@@ -930,6 +970,11 @@ restart:
 
 	bx::AllocatorI* getAllocator()
 	{
+		if (NULL == g_allocator)
+		{
+			g_allocator = getDefaultAllocator();
+		}
+
 		return g_allocator;
 	}
 

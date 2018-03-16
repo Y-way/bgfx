@@ -272,7 +272,7 @@ struct Camera
 		latLongFromVec(ll[0], ll[1], toPosNorm);
 		ll[0] += consume[0];
 		ll[1] -= consume[1];
-		ll[1] = bx::fclamp(ll[1], 0.02f, 0.98f);
+		ll[1] = bx::clamp(ll[1], 0.02f, 0.98f);
 
 		float tmp[3];
 		vecFromLatLong(tmp, ll[0], ll[1]);
@@ -292,16 +292,16 @@ struct Camera
 
 	void update(float _dt)
 	{
-		const float amount = bx::fmin(_dt/0.12f, 1.0f);
+		const float amount = bx::min(_dt/0.12f, 1.0f);
 
 		consumeOrbit(amount);
 
-		m_target.curr[0] = bx::flerp(m_target.curr[0], m_target.dest[0], amount);
-		m_target.curr[1] = bx::flerp(m_target.curr[1], m_target.dest[1], amount);
-		m_target.curr[2] = bx::flerp(m_target.curr[2], m_target.dest[2], amount);
-		m_pos.curr[0] = bx::flerp(m_pos.curr[0], m_pos.dest[0], amount);
-		m_pos.curr[1] = bx::flerp(m_pos.curr[1], m_pos.dest[1], amount);
-		m_pos.curr[2] = bx::flerp(m_pos.curr[2], m_pos.dest[2], amount);
+		m_target.curr[0] = bx::lerp(m_target.curr[0], m_target.dest[0], amount);
+		m_target.curr[1] = bx::lerp(m_target.curr[1], m_target.dest[1], amount);
+		m_target.curr[2] = bx::lerp(m_target.curr[2], m_target.dest[2], amount);
+		m_pos.curr[0] = bx::lerp(m_pos.curr[0], m_pos.dest[0], amount);
+		m_pos.curr[1] = bx::lerp(m_pos.curr[1], m_pos.dest[1], amount);
+		m_pos.curr[2] = bx::lerp(m_pos.curr[2], m_pos.dest[2], amount);
 	}
 
 	void envViewMtx(float* _mtx)
@@ -356,10 +356,10 @@ struct Camera
 		const float phi   = _u * 2.0f*bx::kPi;
 		const float theta = _v * bx::kPi;
 
-		const float st = bx::fsin(theta);
-		const float sp = bx::fsin(phi);
-		const float ct = bx::fcos(theta);
-		const float cp = bx::fcos(phi);
+		const float st = bx::sin(theta);
+		const float sp = bx::sin(phi);
+		const float ct = bx::cos(theta);
+		const float cp = bx::cos(phi);
 
 		_vec[0] = -st*sp;
 		_vec[1] = ct;
@@ -368,8 +368,8 @@ struct Camera
 
 	static inline void latLongFromVec(float& _u, float& _v, const float _vec[3])
 	{
-		const float phi = bx::fatan2(_vec[0], _vec[2]);
-		const float theta = bx::facos(_vec[1]);
+		const float phi   = bx::atan2(_vec[0], _vec[2]);
+		const float theta = bx::acos(_vec[1]);
 
 		_u = (bx::kPi + phi)*bx::kInvPi*0.5f;
 		_v = theta*bx::kInvPi;
@@ -592,12 +592,15 @@ public:
 
 			ImGui::SetNextWindowPos(
 				  ImVec2(m_width - m_width / 5.0f - 10.0f, 10.0f)
-				, ImGuiSetCond_FirstUseEver
+				, ImGuiCond_FirstUseEver
+				);
+			ImGui::SetNextWindowSize(
+				  ImVec2(m_width / 5.0f, m_height - 20.0f)
+				, ImGuiCond_FirstUseEver
 				);
 			ImGui::Begin("Settings"
 				, NULL
-				, ImVec2(m_width / 5.0f, m_height - 20.0f)
-				, ImGuiWindowFlags_AlwaysAutoResize
+				, 0
 				);
 			ImGui::PushItemWidth(180.0f);
 
@@ -707,12 +710,15 @@ public:
 
 			ImGui::SetNextWindowPos(
 				  ImVec2(10.0f, 260.0f)
-				, ImGuiSetCond_FirstUseEver
+				, ImGuiCond_FirstUseEver
+				);
+			ImGui::SetNextWindowSize(
+				  ImVec2(m_width / 5.0f, 450.0f)
+				, ImGuiCond_FirstUseEver
 				);
 			ImGui::Begin("Mesh"
 				, NULL
-				, ImVec2(m_width / 5.0f, 450.0f)
-				, ImGuiWindowFlags_AlwaysAutoResize
+				, 0
 				);
 
 			ImGui::Text("Mesh:");
@@ -823,8 +829,8 @@ public:
 			bgfx::setViewRect(1, 0, 0, uint16_t(m_width), uint16_t(m_height) );
 
 			// Env rotation.
-			const float amount = bx::fmin(deltaTimeSec/0.12f, 1.0f);
-			m_settings.m_envRotCurr = bx::flerp(m_settings.m_envRotCurr, m_settings.m_envRotDest, amount);
+			const float amount = bx::min(deltaTimeSec/0.12f, 1.0f);
+			m_settings.m_envRotCurr = bx::lerp(m_settings.m_envRotCurr, m_settings.m_envRotDest, amount);
 
 			// Env mtx.
 			float mtxEnvView[16];
@@ -836,7 +842,7 @@ public:
 			// Submit view 0.
 			bgfx::setTexture(0, s_texCube, m_lightProbes[m_currentLightProbe].m_tex);
 			bgfx::setTexture(1, s_texCubeIrr, m_lightProbes[m_currentLightProbe].m_texIrr);
-			bgfx::setState(BGFX_STATE_RGB_WRITE|BGFX_STATE_ALPHA_WRITE);
+			bgfx::setState(BGFX_STATE_WRITE_RGB|BGFX_STATE_WRITE_A);
 			screenSpaceQuad( (float)m_width, (float)m_height, true);
 			m_uniforms.submit();
 			bgfx::submit(0, m_programSky);

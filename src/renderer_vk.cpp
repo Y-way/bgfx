@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -703,7 +703,7 @@ VK_IMPORT_DEVICE
 		{
 		}
 
-		bool init()
+		bool init(const Init& _init)
 		{
 			BX_UNUSED(s_checkMsaa, s_textureAddress);
 
@@ -1361,8 +1361,8 @@ VK_IMPORT_DEVICE
 				m_sci.minImageCount   = BX_COUNTOF(m_backBufferColorImage);
 				m_sci.imageFormat     = surfaceFormats[surfaceFormatIdx].format;
 				m_sci.imageColorSpace = surfaceFormats[surfaceFormatIdx].colorSpace;
-				m_sci.imageExtent.width  = 1280;
-				m_sci.imageExtent.height =  720;
+				m_sci.imageExtent.width  = _init.resolution.m_width;
+				m_sci.imageExtent.height = _init.resolution.m_height;
 				m_sci.imageArrayLayers = 1;
 				m_sci.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 				m_sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -1766,11 +1766,13 @@ VK_IMPORT_DEVICE
 				vkDestroy(m_pipelineLayout);
 				vkDestroy(m_descriptorSetLayout);
 				vkDestroy(m_descriptorPool);
+				BX_FALLTHROUGH;
 
 			case ErrorState::CommandBuffersCreated:
 				vkFreeCommandBuffers(m_device, m_commandPool, BX_COUNTOF(m_commandBuffers), m_commandBuffers);
 				vkDestroy(m_commandPool);
 				vkDestroy(m_fence);
+				BX_FALLTHROUGH;
 
 			case ErrorState::SwapchainCreated:
 				for (uint32_t ii = 0; ii < BX_COUNTOF(m_backBufferColorImageView); ++ii)
@@ -1791,15 +1793,19 @@ VK_IMPORT_DEVICE
 					}
 				}
 				vkDestroy(m_swapchain);
+				BX_FALLTHROUGH;
 
 			case ErrorState::SurfaceCreated:
 				vkDestroySurfaceKHR(m_instance, m_surface, m_allocatorCb);
+				BX_FALLTHROUGH;
 
 			case ErrorState::RenderPassCreated:
 				vkDestroy(m_renderPass);
+				BX_FALLTHROUGH;
 
 			case ErrorState::DeviceCreated:
 				vkDestroyDevice(m_device, m_allocatorCb);
+				BX_FALLTHROUGH;
 
 			case ErrorState::InstanceCreated:
 				if (VK_NULL_HANDLE != m_debugReportCallback)
@@ -1808,12 +1814,14 @@ VK_IMPORT_DEVICE
 				}
 
 				vkDestroyInstance(m_instance, m_allocatorCb);
+				BX_FALLTHROUGH;
 
 			case ErrorState::LoadedVulkan1:
 				bx::dlclose(m_vulkan1dll);
 				m_vulkan1dll  = NULL;
 				m_allocatorCb = NULL;
 				unloadRenderDoc(m_renderdocdll);
+				BX_FALLTHROUGH;
 
 			case ErrorState::Default:
 				break;
@@ -1943,7 +1951,7 @@ VK_IMPORT_DEVICE
 			}
 		}
 
-		void createIndexBuffer(IndexBufferHandle _handle, Memory* _mem, uint16_t _flags) override
+		void createIndexBuffer(IndexBufferHandle _handle, const Memory* _mem, uint16_t _flags) override
 		{
 			m_indexBuffers[_handle.idx].create(_mem->size, _mem->data, _flags, false);
 		}
@@ -1964,7 +1972,7 @@ VK_IMPORT_DEVICE
 		{
 		}
 
-		void createVertexBuffer(VertexBufferHandle _handle, Memory* _mem, VertexDeclHandle _declHandle, uint16_t _flags) override
+		void createVertexBuffer(VertexBufferHandle _handle, const Memory* _mem, VertexDeclHandle _declHandle, uint16_t _flags) override
 		{
 			m_vertexBuffers[_handle.idx].create(_mem->size, _mem->data, _declHandle, _flags);
 		}
@@ -1979,7 +1987,7 @@ VK_IMPORT_DEVICE
 			m_indexBuffers[_handle.idx].create(_size, NULL, _flags, false);
 		}
 
-		void updateDynamicIndexBuffer(IndexBufferHandle _handle, uint32_t _offset, uint32_t _size, Memory* _mem) override
+		void updateDynamicIndexBuffer(IndexBufferHandle _handle, uint32_t _offset, uint32_t _size, const Memory* _mem) override
 		{
 			BX_UNUSED(_handle, _offset, _size, _mem);
 //			m_indexBuffers[_handle.idx].update(m_commandBuffer, _offset, bx::uint32_min(_size, _mem->size), _mem->data);
@@ -1996,7 +2004,7 @@ VK_IMPORT_DEVICE
 			m_vertexBuffers[_handle.idx].create(_size, NULL, decl, _flags);
 		}
 
-		void updateDynamicVertexBuffer(VertexBufferHandle _handle, uint32_t _offset, uint32_t _size, Memory* _mem) override
+		void updateDynamicVertexBuffer(VertexBufferHandle _handle, uint32_t _offset, uint32_t _size, const Memory* _mem) override
 		{
 			BX_UNUSED(_handle, _offset, _size, _mem);
 //			m_vertexBuffers[_handle.idx].update(m_commandBuffer, _offset, bx::uint32_min(_size, _mem->size), _mem->data);
@@ -2007,7 +2015,7 @@ VK_IMPORT_DEVICE
 			m_vertexBuffers[_handle.idx].destroy();
 		}
 
-		void createShader(ShaderHandle _handle, Memory* _mem) override
+		void createShader(ShaderHandle _handle, const Memory* _mem) override
 		{
 			m_shaders[_handle.idx].create(_mem);
 		}
@@ -2027,8 +2035,9 @@ VK_IMPORT_DEVICE
 			m_program[_handle.idx].destroy();
 		}
 
-		void createTexture(TextureHandle /*_handle*/, Memory* /*_mem*/, uint32_t /*_flags*/, uint8_t /*_skip*/) override
+		void* createTexture(TextureHandle /*_handle*/, const Memory* /*_mem*/, uint32_t /*_flags*/, uint8_t /*_skip*/) override
 		{
+			return NULL;
 		}
 
 		void updateTextureBegin(TextureHandle /*_handle*/, uint8_t /*_side*/, uint8_t /*_mip*/) override
@@ -2100,7 +2109,7 @@ VK_IMPORT_DEVICE
 		{
 		}
 
-		void updateViewName(uint8_t _id, const char* _name) override
+		void updateViewName(ViewId _id, const char* _name) override
 		{
 			bx::strCopy(&s_viewName[_id][BGFX_CONFIG_MAX_VIEW_NAME_RESERVED]
 				, BX_COUNTOF(s_viewName[0]) - BGFX_CONFIG_MAX_VIEW_NAME_RESERVED
@@ -2376,16 +2385,11 @@ VK_IMPORT_DEVICE
 		{
 			VkPipelineColorBlendAttachmentState* bas = const_cast<VkPipelineColorBlendAttachmentState*>(_desc.pAttachments);
 
-			uint8_t writeMask = (_state & BGFX_STATE_ALPHA_WRITE)
-					? VK_COLOR_COMPONENT_A_BIT
-					: 0
-					;
-			writeMask |= (_state & BGFX_STATE_RGB_WRITE)
-					? VK_COLOR_COMPONENT_R_BIT
-					| VK_COLOR_COMPONENT_G_BIT
-					| VK_COLOR_COMPONENT_B_BIT
-					: 0
-					;
+			uint8_t writeMask = 0;
+			writeMask |= (_state & BGFX_STATE_WRITE_R) ? VK_COLOR_COMPONENT_R_BIT : 0;
+			writeMask |= (_state & BGFX_STATE_WRITE_G) ? VK_COLOR_COMPONENT_G_BIT : 0;
+			writeMask |= (_state & BGFX_STATE_WRITE_B) ? VK_COLOR_COMPONENT_B_BIT : 0;
+			writeMask |= (_state & BGFX_STATE_WRITE_A) ? VK_COLOR_COMPONENT_A_BIT : 0;
 
 			bas->blendEnable = !!(BGFX_STATE_BLEND_MASK & _state);
 
@@ -2492,7 +2496,7 @@ VK_IMPORT_DEVICE
 			_desc.pNext = NULL;
 			_desc.flags = 0;
 			_desc.depthTestEnable  = 0 != func;
-			_desc.depthWriteEnable = !!(BGFX_STATE_DEPTH_WRITE & _state);
+			_desc.depthWriteEnable = !!(BGFX_STATE_WRITE_Z & _state);
 			_desc.depthCompareOp   = s_cmpFunc[func];
 			_desc.depthBoundsTestEnable = VK_FALSE;
 
@@ -2572,9 +2576,9 @@ VK_IMPORT_DEVICE
 			ProgramVK& program = m_program[_programIdx];
 
 			_state &= 0
-				| BGFX_STATE_RGB_WRITE
-				| BGFX_STATE_ALPHA_WRITE
-				| BGFX_STATE_DEPTH_WRITE
+				| BGFX_STATE_WRITE_RGB
+				| BGFX_STATE_WRITE_A
+				| BGFX_STATE_WRITE_Z
 				| BGFX_STATE_DEPTH_TEST_MASK
 				| BGFX_STATE_BLEND_MASK
 				| BGFX_STATE_BLEND_EQUATION_MASK
@@ -2967,27 +2971,28 @@ VK_IMPORT_DEVICE
 //			VK_CHECK(vkWaitForFences(m_device, 1, &m_fence, true, INT64_MAX) );
 		}
 
-		uint32_t selectMemoryType(uint32_t memoryTypeBits, uint32_t propertyFlags)
+		uint32_t selectMemoryType(uint32_t _memoryTypeBits, uint32_t _propertyFlags) const
 		{
-			for (uint32_t ii = 0; ii < m_memoryProperties.memoryTypeCount; ++ii)
+			for (uint32_t ii = 0, num = m_memoryProperties.memoryTypeCount; ii < num; ++ii)
 			{
-				if ( ( ((1<<ii) & memoryTypeBits) != 0)
-				&& ( (m_memoryProperties.memoryTypes[ii].propertyFlags & propertyFlags) == propertyFlags) )
+				const VkMemoryType& memType = m_memoryProperties.memoryTypes[ii];
+				if ( (0 != ( (1<<ii) & _memoryTypeBits) )
+				&& ( (memType.propertyFlags & _propertyFlags) == _propertyFlags) )
 				{
 					return ii;
 				}
 			}
 
-			BX_TRACE("failed to find memory that supports flags 0x%08x", propertyFlags);
+			BX_TRACE("Failed to find memory that supports flags 0x%08x.", _propertyFlags);
 			return 0;
 		}
 
-		VkAllocationCallbacks* m_allocatorCb;
+		VkAllocationCallbacks*   m_allocatorCb;
 		VkDebugReportCallbackEXT m_debugReportCallback;
 		VkInstance       m_instance;
 		VkPhysicalDevice m_physicalDevice;
 
-		VkPhysicalDeviceProperties m_deviceProperties;
+		VkPhysicalDeviceProperties       m_deviceProperties;
 		VkPhysicalDeviceMemoryProperties m_memoryProperties;
 
 		VkSwapchainCreateInfoKHR m_sci;
@@ -3055,10 +3060,10 @@ VK_IMPORT_DEVICE
 
 	static RendererContextVK* s_renderVK;
 
-	RendererContextI* rendererCreate()
+	RendererContextI* rendererCreate(const Init& _init)
 	{
 		s_renderVK = BX_NEW(g_allocator, RendererContextVK);
-		if (!s_renderVK->init() )
+		if (!s_renderVK->init(_init) )
 		{
 			BX_DELETE(g_allocator, s_renderVK);
 			s_renderVK = NULL;
@@ -3639,7 +3644,7 @@ VK_DESTROY
 
 		updateResolution(_render->m_resolution);
 
-		int64_t elapsed = -bx::getHPCounter();
+		int64_t timeBegin = bx::getHPCounter();
 		int64_t captureElapsed = 0;
 
 //		m_gpuTimer.begin(m_commandList);
@@ -3756,9 +3761,9 @@ VK_DESTROY
 
 // 			uint8_t eye = 0;
 // 			uint8_t restartState = 0;
-			viewState.m_rect = _render->m_rect[0];
+			viewState.m_rect = _render->m_view[0].m_rect;
 
-			int32_t numItems = _render->m_num;
+			int32_t numItems = _render->m_numRenderItems;
 			for (int32_t item = 0, restartItem = numItems; item < numItems || restartItem < numItems;)
 			{
 				const uint64_t encodedKey = _render->m_sortKeys[item];
@@ -3797,12 +3802,12 @@ BX_UNUSED(currentSamplerStateIdx);
 					currentProgramIdx      = kInvalidHandle;
 					hasPredefined          = false;
 
-					fbh = _render->m_fb[view];
+					fbh = _render->m_view[view].m_fbh;
 					setFrameBuffer(fbh);
 
-					viewState.m_rect = _render->m_rect[view];
-					const Rect& rect        = _render->m_rect[view];
-					const Rect& scissorRect = _render->m_scissor[view];
+					viewState.m_rect = _render->m_view[view].m_rect;
+					const Rect& rect        = _render->m_view[view].m_rect;
+					const Rect& scissorRect = _render->m_view[view].m_scissor;
 					viewHasScissor  = !scissorRect.isZero();
 					viewScissorRect = viewHasScissor ? scissorRect : rect;
 
@@ -3832,7 +3837,7 @@ BX_UNUSED(currentSamplerStateIdx);
 
 					restoreScissor = false;
 
-					Clear& clr = _render->m_clear[view];
+					Clear& clr = _render->m_view[view].m_clear;
 					if (BGFX_CLEAR_NONE != clr.m_flags)
 					{
 						Rect clearRect = rect;
@@ -3869,7 +3874,7 @@ BX_UNUSED(currentSamplerStateIdx);
 						currentBindHash = 0;
 					}
 
-//					uint32_t bindHash = bx::hashMurmur2A(renderBind.m_bind, sizeof(renderBind.m_bind) );
+//					uint32_t bindHash = bx::hash<bx::HashMurmur2A>(renderBind.m_bind, sizeof(renderBind.m_bind) );
 //					if (currentBindHash != bindHash)
 //					{
 //						currentBindHash  = bindHash;
@@ -3958,10 +3963,10 @@ BX_UNUSED(currentSamplerStateIdx);
 //					}
 
 					bool constantsChanged = false;
-					if (compute.m_constBegin < compute.m_constEnd
+					if (compute.m_uniformBegin < compute.m_uniformEnd
 					||  currentProgramIdx != key.m_program)
 					{
-						rendererUpdateUniforms(this, _render->m_uniformBuffer, compute.m_constBegin, compute.m_constEnd);
+						rendererUpdateUniforms(this, _render->m_uniformBuffer[compute.m_uniformIdx], compute.m_uniformBegin, compute.m_uniformEnd);
 
 						currentProgramIdx = key.m_program;
 						ProgramVK& program = m_program[currentProgramIdx];
@@ -4041,7 +4046,7 @@ BX_UNUSED(currentSamplerStateIdx);
 // 						wchar_t* viewNameW = s_viewNameW[view];
 // 						viewNameW[3] = L' ';
 // 						PIX_ENDEVENT();
-// 						PIX_BEGINEVENT(D3DCOLOR_RGBA(0xff, 0x00, 0x00, 0xff), viewNameW);
+// 						PIX_BEGINEVENT(toRgba8(0xff, 0x00, 0x00, 0xff), viewNameW);
 					}
 
 					commandListChanged = true;
@@ -4073,7 +4078,7 @@ BX_UNUSED(currentSamplerStateIdx);
 					primIndex = uint8_t(pt>>BGFX_STATE_PT_SHIFT);
 				}
 
-				rendererUpdateUniforms(this, _render->m_uniformBuffer, draw.m_constBegin, draw.m_constEnd);
+				rendererUpdateUniforms(this, _render->m_uniformBuffer[draw.m_uniformIdx], draw.m_uniformBegin, draw.m_uniformEnd);
 
 				if (isValid(draw.m_stream[0].m_handle) )
 				{
@@ -4095,7 +4100,7 @@ BX_UNUSED(currentSamplerStateIdx);
 							);
 
 					uint16_t scissor = draw.m_scissor;
-					uint32_t bindHash = bx::hashMurmur2A(renderBind.m_bind, sizeof(renderBind.m_bind) );
+					uint32_t bindHash = bx::hash<bx::HashMurmur2A>(renderBind.m_bind, sizeof(renderBind.m_bind) );
 					if (currentBindHash != bindHash
 					||  0 != changedStencil
 					|| (hasFactor && blendFactor != draw.m_rgba)
@@ -4222,7 +4227,7 @@ BX_UNUSED(currentSamplerStateIdx);
 						{
 							restoreScissor = true;
 							Rect scissorRect;
-							scissorRect.setIntersect(viewScissorRect,_render->m_rectCache.m_cache[scissor]);
+							scissorRect.setIntersect(viewScissorRect, _render->m_frameCache.m_rectCache.m_cache[scissor]);
 							if (scissorRect.isZeroArea() )
 							{
 								continue;
@@ -4244,7 +4249,7 @@ BX_UNUSED(currentSamplerStateIdx);
 					}
 
 					bool constantsChanged = false;
-					if (draw.m_constBegin < draw.m_constEnd
+					if (draw.m_uniformBegin < draw.m_uniformEnd
 					||  currentProgramIdx != key.m_program
 					||  BGFX_STATE_ALPHA_REF_MASK & changedFlags)
 					{
@@ -4355,16 +4360,8 @@ BX_UNUSED(currentSamplerStateIdx);
 //			m_batch.end(m_commandList);
 		}
 
-		int64_t now = bx::getHPCounter();
-		elapsed += now;
-
-		static int64_t last = now;
-
-		Stats& perfStats = _render->m_perfStats;
-		perfStats.cpuTimeBegin = last;
-
-		int64_t frameTime = now - last;
-		last = now;
+		int64_t timeEnd = bx::getHPCounter();
+		int64_t frameTime = timeEnd - timeBegin;
 
 		static int64_t min = frameTime;
 		static int64_t max = frameTime;
@@ -4394,7 +4391,9 @@ BX_UNUSED(presentMin, presentMax);
 
 		const int64_t timerFreq = bx::getHPFrequency();
 
-		perfStats.cpuTimeEnd    = now;
+		Stats& perfStats = _render->m_perfStats;
+		perfStats.cpuTimeBegin  = timeBegin;
+		perfStats.cpuTimeEnd    = timeEnd;
 		perfStats.cpuTimerFreq  = timerFreq;
 //		perfStats.gpuTimeBegin  = m_gpuTimer.m_begin;
 //		perfStats.gpuTimeEnd    = m_gpuTimer.m_end;
@@ -4402,25 +4401,28 @@ BX_UNUSED(presentMin, presentMax);
 //		perfStats.numDraw       = statsKeyType[0];
 //		perfStats.numCompute    = statsKeyType[1];
 //		perfStats.maxGpuLatency = maxGpuLatency;
+		perfStats.gpuMemoryMax  = -INT64_MAX;
+		perfStats.gpuMemoryUsed = -INT64_MAX;
 
 		if (_render->m_debug & (BGFX_DEBUG_IFH|BGFX_DEBUG_STATS) )
 		{
-//			PIX_BEGINEVENT(D3DCOLOR_RGBA(0x40, 0x40, 0x40, 0xff), L"debugstats");
+//			PIX_BEGINEVENT(toRgba8(0x40, 0x40, 0x40, 0xff), L"debugstats");
 
 //			m_needPresent = true;
 			TextVideoMem& tvm = m_textVideoMem;
 
-			static int64_t next = now;
+			static int64_t next = timeEnd;
 
-			if (now >= next)
+			if (timeEnd >= next)
 			{
-				next = now + bx::getHPFrequency();
-				double freq = double(bx::getHPFrequency() );
+				next = timeEnd + timerFreq;
+
+				double freq = double(timerFreq);
 				double toMs = 1000.0 / freq;
 
 				tvm.clear();
 				uint16_t pos = 0;
-				tvm.printf(0, pos++, BGFX_CONFIG_DEBUG ? 0x89 : 0x8f
+				tvm.printf(0, pos++, BGFX_CONFIG_DEBUG ? 0x8c : 0x8f
 					, " %s / " BX_COMPILER_NAME " / " BX_CPU_NAME " / " BX_ARCH_NAME " / " BX_PLATFORM_NAME " "
 					, getRendererName()
 					);
@@ -4472,13 +4474,13 @@ BX_UNUSED(presentMin, presentMax);
 //					);
 
 				pos = 10;
-				tvm.printf(10, pos++, 0x8e, "       Frame: % 7.3f, % 7.3f \x1f, % 7.3f \x1e [ms] / % 6.2f FPS "
+				tvm.printf(10, pos++, 0x8b, "       Frame: % 7.3f, % 7.3f \x1f, % 7.3f \x1e [ms] / % 6.2f FPS "
 					, double(frameTime)*toMs
 					, double(min)*toMs
 					, double(max)*toMs
 					, freq/frameTime
 					);
-//				tvm.printf(10, pos++, 0x8e, "     Present: % 7.3f, % 7.3f \x1f, % 7.3f \x1e [ms] "
+//				tvm.printf(10, pos++, 0x8b, "     Present: % 7.3f, % 7.3f \x1f, % 7.3f \x1e [ms] "
 //					, double(m_presentElapsed)*toMs
 //					, double(presentMin)*toMs
 //					, double(presentMax)*toMs
@@ -4488,7 +4490,7 @@ BX_UNUSED(presentMin, presentMax);
 				bx::snprintf(hmd, BX_COUNTOF(hmd), ", [%c] HMD ", hmdEnabled ? '\xfe' : ' ');
 
 				const uint32_t msaa = (m_resolution.m_flags&BGFX_RESET_MSAA_MASK)>>BGFX_RESET_MSAA_SHIFT;
-				tvm.printf(10, pos++, 0x8e, " Reset flags: [%c] vsync, [%c] MSAAx%d%s, [%c] MaxAnisotropy "
+				tvm.printf(10, pos++, 0x8b, " Reset flags: [%c] vsync, [%c] MSAAx%d%s, [%c] MaxAnisotropy "
 					, !!(m_resolution.m_flags&BGFX_RESET_VSYNC) ? '\xfe' : ' '
 					, 0 != msaa ? '\xfe' : ' '
 					, 1<<msaa
@@ -4496,9 +4498,9 @@ BX_UNUSED(presentMin, presentMax);
 					, !!(m_resolution.m_flags&BGFX_RESET_MAXANISOTROPY) ? '\xfe' : ' '
 					);
 
-				double elapsedCpuMs = double(elapsed)*toMs;
-				tvm.printf(10, pos++, 0x8e, "   Submitted: %5d (draw %5d, compute %4d) / CPU %7.4f [ms] "
-					, _render->m_num
+				double elapsedCpuMs = double(frameTime)*toMs;
+				tvm.printf(10, pos++, 0x8b, "   Submitted: %5d (draw %5d, compute %4d) / CPU %7.4f [ms] "
+					, _render->m_numRenderItems
 					, statsKeyType[0]
 					, statsKeyType[1]
 					, elapsedCpuMs
@@ -4506,7 +4508,7 @@ BX_UNUSED(presentMin, presentMax);
 
 				for (uint32_t ii = 0; ii < BX_COUNTOF(s_primName); ++ii)
 				{
-					tvm.printf(10, pos++, 0x8e, "   %9s: %7d (#inst: %5d), submitted: %7d "
+					tvm.printf(10, pos++, 0x8b, "   %9s: %7d (#inst: %5d), submitted: %7d "
 						, s_primName[ii]
 						, statsNumPrimsRendered[ii]
 						, statsNumInstances[ii]
@@ -4514,13 +4516,13 @@ BX_UNUSED(presentMin, presentMax);
 						);
 				}
 
-//				tvm.printf(10, pos++, 0x8e, "       Batch: %7dx%d indirect, %7d immediate "
+//				tvm.printf(10, pos++, 0x8b, "       Batch: %7dx%d indirect, %7d immediate "
 //					, m_batch.m_stats.m_numIndirect[BatchD3D12::Draw]
 //					, m_batch.m_maxDrawPerBatch
 //					, m_batch.m_stats.m_numImmediate[BatchD3D12::Draw]
 //					);
 
-//				tvm.printf(10, pos++, 0x8e, "              %7dx%d indirect, %7d immediate "
+//				tvm.printf(10, pos++, 0x8b, "              %7dx%d indirect, %7d immediate "
 //					, m_batch.m_stats.m_numIndirect[BatchD3D12::DrawIndexed]
 //					, m_batch.m_maxDrawPerBatch
 //					, m_batch.m_stats.m_numImmediate[BatchD3D12::DrawIndexed]
@@ -4528,18 +4530,18 @@ BX_UNUSED(presentMin, presentMax);
 
  				if (NULL != m_renderdocdll)
  				{
- 					tvm.printf(tvm.m_width-27, 0, 0x1f, " [F11 - RenderDoc capture] ");
+ 					tvm.printf(tvm.m_width-27, 0, 0x4f, " [F11 - RenderDoc capture] ");
  				}
 
-				tvm.printf(10, pos++, 0x8e, "      Indices: %7d ", statsNumIndices);
-				tvm.printf(10, pos++, 0x8e, " Uniform size: %7d, Max: %7d ", _render->m_uniformEnd, _render->m_uniformMax);
-				tvm.printf(10, pos++, 0x8e, "     DVB size: %7d ", _render->m_vboffset);
-				tvm.printf(10, pos++, 0x8e, "     DIB size: %7d ", _render->m_iboffset);
+				tvm.printf(10, pos++, 0x8b, "      Indices: %7d ", statsNumIndices);
+//				tvm.printf(10, pos++, 0x8b, " Uniform size: %7d, Max: %7d ", _render->m_uniformEnd, _render->m_uniformMax);
+				tvm.printf(10, pos++, 0x8b, "     DVB size: %7d ", _render->m_vboffset);
+				tvm.printf(10, pos++, 0x8b, "     DIB size: %7d ", _render->m_iboffset);
 
 				pos++;
-				tvm.printf(10, pos++, 0x8e, " State cache:                        ");
-				tvm.printf(10, pos++, 0x8e, " PSO    | Sampler | Bind   | Queued  ");
-				tvm.printf(10, pos++, 0x8e, " %6d " //|  %6d | %6d | %6d  "
+				tvm.printf(10, pos++, 0x8b, " State cache:                        ");
+				tvm.printf(10, pos++, 0x8b, " PSO    | Sampler | Bind   | Queued  ");
+				tvm.printf(10, pos++, 0x8b, " %6d " //|  %6d | %6d | %6d  "
 					, m_pipelineStateCache.getCount()
 //					, m_samplerStateCache.getCount()
 //					, bindLru.getCount()
@@ -4548,9 +4550,9 @@ BX_UNUSED(presentMin, presentMax);
 				pos++;
 
 				double captureMs = double(captureElapsed)*toMs;
-				tvm.printf(10, pos++, 0x8e, "     Capture: %7.4f [ms] ", captureMs);
+				tvm.printf(10, pos++, 0x8b, "     Capture: %7.4f [ms] ", captureMs);
 
-				uint8_t attr[2] = { 0x89, 0x8a };
+				uint8_t attr[2] = { 0x8c, 0x8a };
 				uint8_t attrIndex = _render->m_waitSubmit < _render->m_waitRender;
 
 				tvm.printf(10, pos++, attr[attrIndex&1], " Submit wait: %7.4f [ms] ", _render->m_waitSubmit*toMs);
@@ -4568,7 +4570,7 @@ BX_UNUSED(presentMin, presentMax);
 		}
 		else if (_render->m_debug & BGFX_DEBUG_TEXT)
 		{
-//			PIX_BEGINEVENT(D3DCOLOR_RGBA(0x40, 0x40, 0x40, 0xff), L"debugtext");
+//			PIX_BEGINEVENT(toRgba8(0x40, 0x40, 0x40, 0xff), L"debugtext");
 
 			blit(this, _textVideoMemBlitter, _render->m_textVideoMem);
 
@@ -4601,8 +4603,9 @@ BX_UNUSED(presentMin, presentMax);
 
 namespace bgfx { namespace vk
 {
-	RendererContextI* rendererCreate()
+	RendererContextI* rendererCreate(const Init& _init)
 	{
+		BX_UNUSED(_init);
 		return NULL;
 	}
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -189,17 +189,17 @@ public:
 				}
 			}
 
-			if (0 != (BGFX_CAPS_FORMAT_TEXTURE_2D & caps->formats[bgfx::TextureFormat::R8]) )
+			if (0 != (BGFX_CAPS_FORMAT_TEXTURE_3D & caps->formats[bgfx::TextureFormat::R8]) )
 			{
 				m_textures3d[m_numTextures3d++] = bgfx::createTexture3D(32, 32, 32, false, bgfx::TextureFormat::R8,   BGFX_TEXTURE_U_CLAMP|BGFX_TEXTURE_V_CLAMP|BGFX_TEXTURE_W_CLAMP, mem8);
 			}
 
-			if (0 != (BGFX_CAPS_FORMAT_TEXTURE_2D & caps->formats[bgfx::TextureFormat::R16F]) )
+			if (0 != (BGFX_CAPS_FORMAT_TEXTURE_3D & caps->formats[bgfx::TextureFormat::R16F]) )
 			{
 				m_textures3d[m_numTextures3d++] = bgfx::createTexture3D(32, 32, 32, false, bgfx::TextureFormat::R16F, BGFX_TEXTURE_U_CLAMP|BGFX_TEXTURE_V_CLAMP|BGFX_TEXTURE_W_CLAMP, mem16f);
 			}
 
-			if (0 != (BGFX_CAPS_FORMAT_TEXTURE_2D & caps->formats[bgfx::TextureFormat::R32F]) )
+			if (0 != (BGFX_CAPS_FORMAT_TEXTURE_3D & caps->formats[bgfx::TextureFormat::R32F]) )
 			{
 				m_textures3d[m_numTextures3d++] = bgfx::createTexture3D(32, 32, 32, false, bgfx::TextureFormat::R32F, BGFX_TEXTURE_U_CLAMP|BGFX_TEXTURE_V_CLAMP|BGFX_TEXTURE_W_CLAMP, mem32f);
 			}
@@ -455,12 +455,13 @@ public:
 				}
 			}
 
-			float at[3] = { 0.0f, 0.0f, 0.0f };
+			float at[3]  = { 0.0f, 0.0f,  0.0f };
 			float eye[3] = { 0.0f, 0.0f, -5.0f };
 
 			float view[16];
-			float proj[16];
 			bx::mtxLookAt(view, eye, at);
+
+			float proj[16];
 			bx::mtxProj(proj, 60.0f, float(m_width)/float(m_height), 0.1f, 100.0f, bgfx::getCaps()->homogeneousDepth);
 
 			// Set view and projection matrix for view 0.
@@ -469,7 +470,7 @@ public:
 			// Update texturecube using compute shader
 			if (bgfx::isValid(m_programCompute) )
 			{
-				bgfx::setImage(0, s_texCube, m_textureCube[2], 0, bgfx::Access::Write);
+				bgfx::setImage(0, m_textureCube[2], 0, bgfx::Access::Write);
 				bgfx::dispatch(0, m_programCompute, textureside/16, textureside/16);
 			}
 
@@ -478,23 +479,23 @@ public:
 				if (bgfx::isValid(m_textureCube[ii]))
 				{
 					float mtx[16];
-					bx::mtxSRT( mtx, 0.7f, 0.7f, 0.7f, time, time*0.37f, 0.0f, -2.0f +ii*2.0f, 0.0f, 0.0f );
+					bx::mtxSRT(mtx, 0.7f, 0.7f, 0.7f, time, time*0.37f, 0.0f, -2.0f +ii*2.0f, 0.0f, 0.0f);
 
 					// Set model matrix for rendering.
-					bgfx::setTransform( mtx );
+					bgfx::setTransform(mtx);
 
 					// Set vertex and index buffer.
 					bgfx::setVertexBuffer(0,  m_vbh );
-					bgfx::setIndexBuffer( m_ibh );
+					bgfx::setIndexBuffer(m_ibh);
 
 					// Bind texture.
-					bgfx::setTexture( 0, s_texCube, m_textureCube[ii] );
+					bgfx::setTexture(0, s_texCube, m_textureCube[ii]);
 
 					// Set render states.
-					bgfx::setState( BGFX_STATE_DEFAULT );
+					bgfx::setState(BGFX_STATE_DEFAULT);
 
 					// Submit primitive for rendering to view 0.
-					bgfx::submit( 0, m_program );
+					bgfx::submit(0, m_program);
 				}
 			}
 
@@ -549,7 +550,7 @@ public:
 
 			for (uint32_t ii = 0; ii < m_numTextures3d; ++ii)
 			{
-				bx::mtxTranslate(mtx, xpos + ii*2.1f, -size+6.5f, 0.0f);
+				bx::mtxTranslate(mtx, xpos + (ii+3)*2.1f, -size+6.5f, 0.0f);
 
 				// Set model matrix for rendering.
 				bgfx::setTransform(mtx);

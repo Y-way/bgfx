@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -38,6 +38,8 @@ static const char* s_directionName[] =
 static const char* s_easeFuncName[] =
 {
 	"Linear",
+	"Step",
+	"SmoothStep",
 	"InQuad",
 	"OutQuad",
 	"InOutQuad",
@@ -279,6 +281,7 @@ public:
 		{
 			m_emitter[ii].create();
 			m_emitter[ii].m_uniforms.m_handle = sprite;
+			m_emitter[ii].update();
 		}
 
 		imguiCreate();
@@ -369,12 +372,14 @@ public:
 
 			ImGui::SetNextWindowPos(
 				  ImVec2(m_width - m_width / 4.0f - 10.0f, 10.0f)
-				, ImGuiSetCond_FirstUseEver
+				, ImGuiCond_FirstUseEver
+				);
+			ImGui::SetNextWindowSize(
+				  ImVec2(m_width / 4.0f, m_height - 20.0f)
+				, ImGuiCond_FirstUseEver
 				);
 			ImGui::Begin("Settings"
 				, NULL
-				, ImVec2(m_width / 4.0f, m_height - 20.0f)
-				, ImGuiWindowFlags_AlwaysAutoResize
 				);
 
 			static float timeScale = 1.0f;
@@ -424,8 +429,11 @@ public:
 			{
 				Aabb aabb;
 				psGetAabb(m_emitter[currentEmitter].m_handle, aabb);
-				ddSetColor(0xff0000ff);
-				ddDraw(aabb);
+				ddPush();
+					ddSetWireframe(true);
+					ddSetColor(0xff0000ff);
+					ddDraw(aabb);
+				ddPop();
 			}
 
 			ddEnd();

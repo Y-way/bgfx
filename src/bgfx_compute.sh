@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -15,7 +15,7 @@
 #define SHARED shared
 
 #define __IMAGE_XX(_name, _format, _reg, _image, _access) \
-			layout(_format, binding=_reg) _access uniform highp _image _name
+	layout(_format, binding=_reg) _access uniform highp _image _name
 
 #define readwrite
 #define IMAGE2D_RO( _name, _format, _reg) __IMAGE_XX(_name, _format, _reg, image2D,  readonly)
@@ -39,11 +39,11 @@
 #define IMAGE3D_RW( _name, _format, _reg) __IMAGE_XX(_name, _format, _reg, image3D,  readwrite)
 #define UIMAGE3D_RW(_name, _format, _reg) __IMAGE_XX(_name, _format, _reg, uimage3D, readwrite)
 
-#define __BUFFER_XX(_name, _type, _reg, _access)                        \
-			layout(std430, binding=_reg) _access buffer _name ## Buffer \
-			{                                                           \
-				_type _name[];                                          \
-			}
+#define __BUFFER_XX(_name, _type, _reg, _access)                \
+	layout(std430, binding=_reg) _access buffer _name ## Buffer \
+	{                                                           \
+		_type _name[];                                          \
+	}
 
 #define BUFFER_RO(_name, _type, _reg) __BUFFER_XX(_name, _type, _reg, readonly)
 #define BUFFER_RW(_name, _type, _reg) __BUFFER_XX(_name, _type, _reg, readwrite)
@@ -82,15 +82,15 @@
 #define UIMAGE2D_WR(_name, _format, _reg) IMAGE2D_RW(_name, _format, _reg)
 #define UIMAGE2D_RW(_name, _format, _reg) IMAGE2D_RW(_name, _format, _reg)
 
-#define IMAGE2D_ARRAY_RO( _name, _format, _reg)                      \
+#define IMAGE2D_ARRAY_RO(_name, _format, _reg)                       \
 	Texture2DArray<_format> _name ## Texture : REGISTER(t, _reg);    \
-	static BgfxROImageArray2D_ ## _format _name = { _name ## Texture }
+	static BgfxROImage2DArray_ ## _format _name = { _name ## Texture }
 
 #define UIMAGE2D_ARRAY_RO(_name, _format, _reg) IMAGE2D_ARRAY_RO(_name, _format, _reg)
 
-#define IMAGE2D_ARRAY_RW( _name, _format, _reg)                        \
+#define IMAGE2D_ARRAY_RW(_name, _format, _reg)                         \
 	RWTexture2DArray<_format> _name ## Texture : REGISTER(u, _reg);    \
-	static BgfxRWImageArray2D_ ## _format _name = { _name ## Texture }
+	static BgfxRWImage2DArray_ ## _format _name = { _name ## Texture }
 
 #define UIMAGE2D_ARRAY_RW(_name, _format, _reg) IMAGE2D_ARRAY_RW(_name, _format, _reg)
 #define IMAGE2D_ARRAY_WR( _name, _format, _reg) IMAGE2D_ARRAY_RW(_name, _format, _reg)
@@ -116,37 +116,37 @@
 
 #define NUM_THREADS(_x, _y, _z) [numthreads(_x, _y, _z)]
 
-#define __IMAGE_IMPL_S(_format, _storeComponents, _type, _loadComponents)      \
+#define __IMAGE_IMPL_S(_format, _storeComponents, _type, _loadComponents) \
 	\
-	struct BgfxROImage2D_ ## _format                                           \
-	{                                                                          \
-		Texture2D<_format> m_texture;                                          \
-	};                                                                         \
+	struct BgfxROImage2D_ ## _format                                      \
+	{                                                                     \
+		Texture2D<_format> m_texture;                                     \
+	};                                                                    \
 	\
-	struct BgfxRWImage2D_ ## _format                                           \
-	{                                                                          \
-		RWTexture2D<_format> m_texture;                                        \
-	};                                                                         \
+	struct BgfxRWImage2D_ ## _format                                      \
+	{                                                                     \
+		RWTexture2D<_format> m_texture;                                   \
+	};                                                                    \
 	\
-	struct BgfxROImage2DArray_ ## _format                                      \
-	{                                                                          \
-		Texture2DArray<_format> m_texture;                                     \
-	};                                                                         \
+	struct BgfxROImage2DArray_ ## _format                                 \
+	{                                                                     \
+		Texture2DArray<_format> m_texture;                                \
+	};                                                                    \
 	\
-	struct BgfxRWImageArray2D_ ## _format                                      \
-	{                                                                          \
-		RWTexture2DArray<_format> m_texture;                                   \
-	};                                                                         \
+	struct BgfxRWImage2DArray_ ## _format                                 \
+	{                                                                     \
+		RWTexture2DArray<_format> m_texture;                              \
+	};                                                                    \
 	\
-	struct BgfxROImage3D_ ## _format                                           \
-	{                                                                          \
-		Texture3D<_format> m_texture;                                          \
-	};                                                                         \
+	struct BgfxROImage3D_ ## _format                                      \
+	{                                                                     \
+		Texture3D<_format> m_texture;                                     \
+	};                                                                    \
 	\
-	struct BgfxRWImage3D_ ## _format                                           \
-	{                                                                          \
-		RWTexture3D<_format> m_texture;                                        \
-	};                                                                         \
+	struct BgfxRWImage3D_ ## _format                                      \
+	{                                                                     \
+		RWTexture3D<_format> m_texture;                                   \
+	};                                                                    \
 
 #define __IMAGE_IMPL_A(_format, _storeComponents, _type, _loadComponents)            \
 	__IMAGE_IMPL_S(_format, _storeComponents, _type, _loadComponents)                \
@@ -192,17 +192,17 @@
 		return ivec3(result);                                                        \
 	}                                                                                \
 	\
-	_type imageLoad(BgfxRWImageArray2D_ ## _format _image, ivec3 _uvw)               \
+	_type imageLoad(BgfxRWImage2DArray_ ## _format _image, ivec3 _uvw)               \
 	{                                                                                \
 		return _image.m_texture[_uvw]._loadComponents;                               \
 	}                                                                                \
 	\
-	void imageStore(BgfxRWImageArray2D_ ## _format _image, ivec3 _uvw, _type _value) \
+	void imageStore(BgfxRWImage2DArray_ ## _format _image, ivec3 _uvw, _type _value) \
 	{                                                                                \
 		_image.m_texture[_uvw] = _value._storeComponents;                            \
 	}                                                                                \
 	\
-	ivec3 imageSize(BgfxRWImageArray2D_ ## _format _image)                           \
+	ivec3 imageSize(BgfxRWImage2DArray_ ## _format _image)                           \
 	{                                                                                \
 		uvec3 result;                                                                \
 		_image.m_texture.GetDimensions(result.x, result.y, result.z);                \
@@ -251,39 +251,16 @@ __IMAGE_IMPL_A(r32ui,       x,    uvec4, xxxx)
 __IMAGE_IMPL_A(rg32ui,      xy,   uvec4, xyyy)
 __IMAGE_IMPL_A(rgba32ui,    xyzw, uvec4, xyzw)
 
-#define __ATOMIC_IMPL_TYPE(_genType, _glFunc, _dxFunc)            \
-			_genType _glFunc(inout _genType _mem, _genType _data) \
-			{                                                     \
-				_genType result;                                  \
-				_dxFunc(_mem, _data, result);                     \
-				return result;                                    \
-			}
+#define atomicAdd(_mem, _data)      InterlockedAdd(_mem, _data)
+#define atomicAnd(_mem, _data)      InterlockedAnd(_mem, _data)
+#define atomicExchange(_mem, _data) InterlockedExchange(_mem, _data)
+#define atomicMax(_mem, _data)      InterlockedMax(_mem, _data)
+#define atomicMin(_mem, _data)      InterlockedMin(_mem, _data)
+#define atomicOr(_mem, _data)       InterlockedOr(_mem, _data)
+#define atomicXor(_mem, _data)      InterlockedXor(_mem, _data)
 
-#define __ATOMIC_IMPL(_glFunc, _dxFunc)                \
-			__ATOMIC_IMPL_TYPE(int,  _glFunc, _dxFunc) \
-			__ATOMIC_IMPL_TYPE(uint, _glFunc, _dxFunc)
-
-__ATOMIC_IMPL(atomicAdd,      InterlockedAdd);
-__ATOMIC_IMPL(atomicAnd,      InterlockedAnd);
-__ATOMIC_IMPL(atomicExchange, InterlockedExchange);
-__ATOMIC_IMPL(atomicMax,      InterlockedMax);
-__ATOMIC_IMPL(atomicMin,      InterlockedMin);
-__ATOMIC_IMPL(atomicOr,       InterlockedOr);
-__ATOMIC_IMPL(atomicXor,      InterlockedXor);
-
-int atomicCompSwap(inout int _mem, int _compare, int _data)
-{
-	int result;
-	InterlockedCompareExchange(_mem, _compare, _data, result);
-	return result;
-}
-
-uint atomicCompSwap(inout uint _mem, uint _compare, uint _data)
-{
-	uint result;
-	InterlockedCompareExchange(_mem, _compare, _data, result);
-	return result;
-}
+#define atomicCompSwap(_mem, _compare, _data) \
+	InterlockedCompareExchange(_mem,_compare, _data)
 
 // InterlockedCompareStore
 

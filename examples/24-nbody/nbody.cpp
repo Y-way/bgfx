@@ -280,12 +280,15 @@ public:
 			{
 				ImGui::SetNextWindowPos(
 					  ImVec2(m_width - m_width / 5.0f - 10.0f, 10.0f)
-					, ImGuiSetCond_FirstUseEver
+					, ImGuiCond_FirstUseEver
+					);
+				ImGui::SetNextWindowSize(
+					  ImVec2(m_width / 5.0f, m_height / 1.5f)
+					, ImGuiCond_FirstUseEver
 					);
 				ImGui::Begin("Settings"
 					, NULL
-					, ImVec2(m_width / 5.0f, m_height / 1.5f)
-					, ImGuiWindowFlags_AlwaysAutoResize
+					, 0
 					);
 
 				bool    reset = false;
@@ -417,7 +420,7 @@ public:
 
 				// Set render states.
 				bgfx::setState(0
-					| BGFX_STATE_RGB_WRITE
+					| BGFX_STATE_WRITE_RGB
 					| BGFX_STATE_BLEND_ADD
 					| BGFX_STATE_DEPTH_TEST_ALWAYS
 					);

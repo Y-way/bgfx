@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -73,7 +73,7 @@ public:
 
 		m_width  = _width;
 		m_height = _height;
-		m_debug  = BGFX_DEBUG_NONE;
+		m_debug  = BGFX_DEBUG_TEXT;
 		m_reset  = BGFX_RESET_VSYNC;
 
 		bgfx::init(args.m_type, args.m_pciId);
@@ -163,7 +163,7 @@ public:
 				// When instancing is not supported by GPU, implement alternative
 				// code path that doesn't use instancing.
 				bool blink = uint32_t(time*3.0f)&1;
-				bgfx::dbgTextPrintf(0, 0, blink ? 0x1f : 0x01, " Instancing is not supported by GPU. ");
+				bgfx::dbgTextPrintf(0, 0, blink ? 0x4f : 0x04, " Instancing is not supported by GPU. ");
 			}
 			else
 			{
@@ -197,16 +197,22 @@ public:
 					bgfx::setViewRect(0, 0, 0, uint16_t(m_width), uint16_t(m_height) );
 				}
 
+				// 80 bytes stride = 64 bytes for 4x4 matrix + 16 bytes for RGBA color.
 				const uint16_t instanceStride = 80;
-				const bgfx::InstanceDataBuffer* idb = bgfx::allocInstanceDataBuffer(121, instanceStride);
-				if (NULL != idb)
+				// 11x11 cubes
+				const uint32_t numInstances   = 121;
+
+				if (numInstances == bgfx::getAvailInstanceDataBuffer(numInstances, instanceStride) )
 				{
-					uint8_t* data = idb->data;
+					bgfx::InstanceDataBuffer idb;
+					bgfx::allocInstanceDataBuffer(&idb, numInstances, instanceStride);
+
+					uint8_t* data = idb.data;
 
 					// Write instance data for 11x11 cubes.
-					for (uint32_t yy = 0, numInstances = 0; yy < 11 && numInstances < idb->num; ++yy)
+					for (uint32_t yy = 0; yy < 11; ++yy)
 					{
-						for (uint32_t xx = 0; xx < 11 && numInstances < idb->num; ++xx, ++numInstances)
+						for (uint32_t xx = 0; xx < 11; ++xx)
 						{
 							float* mtx = (float*)data;
 							bx::mtxRotateXY(mtx, time + xx*0.21f, time + yy*0.37f);
@@ -215,9 +221,9 @@ public:
 							mtx[14] = 0.0f;
 
 							float* color = (float*)&data[64];
-							color[0] = bx::fsin(time+float(xx)/11.0f)*0.5f+0.5f;
-							color[1] = bx::fcos(time+float(yy)/11.0f)*0.5f+0.5f;
-							color[2] = bx::fsin(time*3.0f)*0.5f+0.5f;
+							color[0] = bx::sin(time+float(xx)/11.0f)*0.5f+0.5f;
+							color[1] = bx::cos(time+float(yy)/11.0f)*0.5f+0.5f;
+							color[2] = bx::sin(time*3.0f)*0.5f+0.5f;
 							color[3] = 1.0f;
 
 							data += instanceStride;
@@ -229,7 +235,7 @@ public:
 					bgfx::setIndexBuffer(m_ibh);
 
 					// Set instance data buffer.
-					bgfx::setInstanceDataBuffer(idb);
+					bgfx::setInstanceDataBuffer(&idb);
 
 					// Set render states.
 					bgfx::setState(BGFX_STATE_DEFAULT);

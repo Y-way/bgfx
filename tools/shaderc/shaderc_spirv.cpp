@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -468,7 +468,7 @@ namespace bgfx { namespace spirv
 		return true;
 	}
 
-#define DBG(...)
+#define DBG(...) // bx::debugPrintf(__VA_ARGS__)
 
 	void disassemble(bx::WriterI* _writer, bx::ReaderSeekerI* _reader, bx::Error* _err)
 	{
@@ -517,18 +517,6 @@ namespace bgfx { namespace spirv
 		}
 	}
 
-	struct DebugOutputWriter : public bx::WriterI
-	{
-		virtual int32_t write(const void* _data, int32_t _size, bx::Error*) override
-		{
-			char* out = (char*)alloca(_size + 1);
-			bx::memCopy(out, _data, _size);
-			out[_size] = '\0';
-			printf("%s", out);
-			return _size;
-		}
-	};
-
 	static EShLanguage getLang(char _p)
 	{
 		switch (_p)
@@ -545,25 +533,18 @@ namespace bgfx { namespace spirv
 //		fprintf(stderr, "%s\n", _message);
 //	}
 
-	static bool compile(bx::CommandLine& _cmdLine, uint32_t _version, const std::string& _code, bx::WriterI* _writer)
+	static bool compile(const Options& _options, uint32_t _version, const std::string& _code, bx::WriterI* _writer)
 	{
-		BX_UNUSED(_cmdLine, _version, _code, _writer);
-
-		const char* type = _cmdLine.findOption('\0', "type");
-		if (NULL == type)
-		{
-			fprintf(stderr, "Error: Shader type must be specified.\n");
-			return false;
-		}
+		BX_UNUSED(_version);
 
 		glslang::InitializeProcess();
 
 		glslang::TProgram* program = new glslang::TProgram;
 
-		EShLanguage stage = getLang(type[0]);
+		EShLanguage stage = getLang(_options.shaderType);
 		if (EShLangCount == stage)
 		{
-			fprintf(stderr, "Error: Unknown shader type %s.\n", type);
+			fprintf(stderr, "Error: Unknown shader type '%c'.\n", _options.shaderType);
 			return false;
 		}
 		glslang::TShader* shader = new glslang::TShader(stage);
@@ -649,7 +630,7 @@ namespace bgfx { namespace spirv
 					uint16_t count = (uint16_t)program->getNumLiveUniformVariables();
 					bx::write(_writer, count);
 
-					uint32_t fragmentBit = type[0] == 'f' ? BGFX_UNIFORM_FRAGMENTBIT : 0;
+					uint32_t fragmentBit = _options.shaderType == 'f' ? BGFX_UNIFORM_FRAGMENTBIT : 0;
 					for (uint16_t ii = 0; ii < count; ++ii)
 					{
 						Uniform un;
@@ -710,41 +691,12 @@ namespace bgfx { namespace spirv
 					| spv::spirvbin_t::DCE_ALL
 					| spv::spirvbin_t::OPT_ALL
 					| spv::spirvbin_t::MAP_ALL
-//					| spv::spirvbin_t::STRIP
 					);
 
 				bx::Error err;
-				DebugOutputWriter writer;
+				bx::WriterI* writer = bx::getDebugOut();
 				bx::MemoryReader reader(spirv.data(), uint32_t(spirv.size()*4) );
-				disassemble(&writer, &reader, &err);
-
-#if 0
-				spvtools::SpirvTools tools(SPV_ENV_VULKAN_1_0);
-				tools.SetMessageConsumer(printError);
-				validated = tools.Validate(spirv);
-
-				if (!validated)
-				{
-					std::string out;
-					tools.Disassemble(spirv, &out);
-					printf("%s\n", out.c_str());
-				}
-
-				if (validated)
-				{
-					spvtools::Optimizer optm(SPV_ENV_VULKAN_1_0);
-					optm.SetMessageConsumer(printError);
-					optm
-						.RegisterPass(spvtools::CreateStripDebugInfoPass() )
-//						.RegisterPass(spvtools::CreateSetSpecConstantDefaultValuePass({ {1, "42" } }) )
-						.RegisterPass(spvtools::CreateFreezeSpecConstantValuePass() )
-						.RegisterPass(spvtools::CreateFoldSpecConstantOpAndCompositePass() )
-						.RegisterPass(spvtools::CreateEliminateDeadConstantPass() )
-						.RegisterPass(spvtools::CreateUnifyConstantPass() )
-						;
-					optimized = optm.Run(spirv.data(), spirv.size(), &spirv);
-				}
-#endif // 0
+				disassemble(writer, &reader, &err);
 
 				if (optimized)
 				{
@@ -767,9 +719,9 @@ namespace bgfx { namespace spirv
 
 } // namespace spirv
 
-	bool compileSPIRVShader(bx::CommandLine& _cmdLine, uint32_t _version, const std::string& _code, bx::WriterI* _writer)
+	bool compileSPIRVShader(const Options& _options, uint32_t _version, const std::string& _code, bx::WriterI* _writer)
 	{
-		return spirv::compile(_cmdLine, _version, _code, _writer);
+		return spirv::compile(_options, _version, _code, _writer);
 	}
 
 } // namespace bgfx

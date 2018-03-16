@@ -13,6 +13,8 @@
 #include "imgui.h"
 #include "../bgfx_utils.h"
 
+//#define USE_ENTRY 1
+
 #ifndef USE_ENTRY
 #	if defined(SCI_NAMESPACE)
 #		define USE_ENTRY 1
@@ -23,10 +25,10 @@
 
 #if USE_ENTRY
 #	include "../entry/entry.h"
+#	include "../entry/input.h"
 #endif // USE_ENTRY
 
 #if defined(SCI_NAMESPACE)
-#	include "../entry/input.h"
 #	include "scintilla.h"
 #endif // defined(SCI_NAMESPACE)
 
@@ -63,13 +65,11 @@ static FontRangeMerge s_fontRangeMerge[] =
 	{ s_iconsFontAwesomeTtf, sizeof(s_iconsFontAwesomeTtf), { ICON_MIN_FA, ICON_MAX_FA, 0 } },
 };
 
-static void* memAlloc(size_t _size);
-static void memFree(void* _ptr);
+static void* memAlloc(size_t _size, void* _userData);
+static void memFree(void* _ptr, void* _userData);
 
 struct OcornutImguiContext
 {
-	static void renderDrawLists(ImDrawData* _drawData);
-
 	void render(ImDrawData* _drawData)
 	{
 		const ImGuiIO& io = ImGui::GetIO();
@@ -144,8 +144,8 @@ struct OcornutImguiContext
 				else if (0 != cmd->ElemCount)
 				{
 					uint64_t state = 0
-						| BGFX_STATE_RGB_WRITE
-						| BGFX_STATE_ALPHA_WRITE
+						| BGFX_STATE_WRITE_RGB
+						| BGFX_STATE_WRITE_A
 						| BGFX_STATE_MSAA
 						;
 
@@ -172,11 +172,11 @@ struct OcornutImguiContext
 						state |= BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA);
 					}
 
-					const uint16_t xx = uint16_t(bx::fmax(cmd->ClipRect.x, 0.0f) );
-					const uint16_t yy = uint16_t(bx::fmax(cmd->ClipRect.y, 0.0f) );
+					const uint16_t xx = uint16_t(bx::max(cmd->ClipRect.x, 0.0f) );
+					const uint16_t yy = uint16_t(bx::max(cmd->ClipRect.y, 0.0f) );
 					bgfx::setScissor(xx, yy
-							, uint16_t(bx::fmin(cmd->ClipRect.z, 65535.0f)-xx)
-							, uint16_t(bx::fmin(cmd->ClipRect.w, 65535.0f)-yy)
+							, uint16_t(bx::min(cmd->ClipRect.z, 65535.0f)-xx)
+							, uint16_t(bx::min(cmd->ClipRect.w, 65535.0f)-yy)
 							);
 
 					bgfx::setState(state);
@@ -205,10 +205,11 @@ struct OcornutImguiContext
 		m_lastScroll = 0;
 		m_last = bx::getHPCounter();
 
+		ImGui::SetAllocatorFunctions(memAlloc, memFree, NULL);
+
+		m_imgui = ImGui::CreateContext();
+
 		ImGuiIO& io = ImGui::GetIO();
-		io.RenderDrawListsFn = renderDrawLists;
-		io.MemAllocFn = memAlloc;
-		io.MemFreeFn  = memFree;
 
 		io.DisplaySize = ImVec2(1280.0f, 720.0f);
 		io.DeltaTime   = 1.0f / 60.0f;
@@ -216,16 +217,20 @@ struct OcornutImguiContext
 
 		setupStyle(true);
 
-#if defined(SCI_NAMESPACE)
+#if USE_ENTRY
 		io.KeyMap[ImGuiKey_Tab]        = (int)entry::Key::Tab;
 		io.KeyMap[ImGuiKey_LeftArrow]  = (int)entry::Key::Left;
 		io.KeyMap[ImGuiKey_RightArrow] = (int)entry::Key::Right;
 		io.KeyMap[ImGuiKey_UpArrow]    = (int)entry::Key::Up;
 		io.KeyMap[ImGuiKey_DownArrow]  = (int)entry::Key::Down;
+		io.KeyMap[ImGuiKey_PageUp]     = (int)entry::Key::PageUp;
+		io.KeyMap[ImGuiKey_PageDown]   = (int)entry::Key::PageDown;
 		io.KeyMap[ImGuiKey_Home]       = (int)entry::Key::Home;
 		io.KeyMap[ImGuiKey_End]        = (int)entry::Key::End;
+		io.KeyMap[ImGuiKey_Insert]     = (int)entry::Key::Insert;
 		io.KeyMap[ImGuiKey_Delete]     = (int)entry::Key::Delete;
 		io.KeyMap[ImGuiKey_Backspace]  = (int)entry::Key::Backspace;
+		io.KeyMap[ImGuiKey_Space]      = (int)entry::Key::Space;
 		io.KeyMap[ImGuiKey_Enter]      = (int)entry::Key::Return;
 		io.KeyMap[ImGuiKey_Escape]     = (int)entry::Key::Esc;
 		io.KeyMap[ImGuiKey_A]          = (int)entry::Key::KeyA;
@@ -234,7 +239,28 @@ struct OcornutImguiContext
 		io.KeyMap[ImGuiKey_X]          = (int)entry::Key::KeyX;
 		io.KeyMap[ImGuiKey_Y]          = (int)entry::Key::KeyY;
 		io.KeyMap[ImGuiKey_Z]          = (int)entry::Key::KeyZ;
-#endif // defined(SCI_NAMESPACE)
+
+		io.NavFlags |= 0
+			| ImGuiNavFlags_EnableGamepad
+			| ImGuiNavFlags_EnableKeyboard
+			;
+		io.NavInputs[ImGuiNavInput_Activate]    = (int)entry::Key::GamepadA;
+		io.NavInputs[ImGuiNavInput_Cancel]      = (int)entry::Key::GamepadB;
+//		io.NavInputs[ImGuiNavInput_Input]       = (int)entry::Key::;
+//		io.NavInputs[ImGuiNavInput_Menu]        = (int)entry::Key::;
+		io.NavInputs[ImGuiNavInput_DpadLeft]    = (int)entry::Key::GamepadLeft;
+		io.NavInputs[ImGuiNavInput_DpadRight]   = (int)entry::Key::GamepadRight;
+		io.NavInputs[ImGuiNavInput_DpadUp]      = (int)entry::Key::GamepadUp;
+		io.NavInputs[ImGuiNavInput_DpadDown]    = (int)entry::Key::GamepadDown;
+//		io.NavInputs[ImGuiNavInput_LStickLeft]  = (int)entry::Key::;
+//		io.NavInputs[ImGuiNavInput_LStickRight] = (int)entry::Key::;
+//		io.NavInputs[ImGuiNavInput_LStickUp]    = (int)entry::Key::;
+//		io.NavInputs[ImGuiNavInput_LStickDown]  = (int)entry::Key::;
+//		io.NavInputs[ImGuiNavInput_FocusPrev]   = (int)entry::Key::;
+//		io.NavInputs[ImGuiNavInput_FocusNext]   = (int)entry::Key::;
+//		io.NavInputs[ImGuiNavInput_TweakSlow]   = (int)entry::Key::;
+//		io.NavInputs[ImGuiNavInput_TweakFast]   = (int)entry::Key::;
+#endif // USE_ENTRY
 
 		bgfx::RendererType::Enum type = bgfx::getRendererType();
 		m_program = bgfx::createProgram(
@@ -306,7 +332,7 @@ struct OcornutImguiContext
 	void destroy()
 	{
 		ImGui::ShutdownDockContext();
-		ImGui::Shutdown();
+		ImGui::DestroyContext(m_imgui);
 
 		bgfx::destroy(s_tex);
 		bgfx::destroy(m_texture);
@@ -323,70 +349,17 @@ struct OcornutImguiContext
 		// Doug Binks' darl color scheme
 		// https://gist.github.com/dougbinks/8089b4bbaccaaf6fa204236978d165a9
 		ImGuiStyle& style = ImGui::GetStyle();
-
-		style.FrameRounding = 4.0f;
-
-		// light style from Pacome Danhiez (user itamago)
-		// https://github.com/ocornut/imgui/pull/511#issuecomment-175719267
-		style.Colors[ImGuiCol_Text]                  = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
-		style.Colors[ImGuiCol_TextDisabled]          = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
-		style.Colors[ImGuiCol_WindowBg]              = ImVec4(0.94f, 0.94f, 0.94f, 1.00f);
-		style.Colors[ImGuiCol_ChildWindowBg]         = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-		style.Colors[ImGuiCol_Border]                = ImVec4(0.00f, 0.00f, 0.00f, 0.39f);
-		style.Colors[ImGuiCol_BorderShadow]          = ImVec4(1.00f, 1.00f, 1.00f, 0.10f);
-		style.Colors[ImGuiCol_FrameBg]               = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-		style.Colors[ImGuiCol_FrameBgHovered]        = ImVec4(0.26f, 0.59f, 0.98f, 0.40f);
-		style.Colors[ImGuiCol_FrameBgActive]         = ImVec4(0.26f, 0.59f, 0.98f, 0.67f);
-		style.Colors[ImGuiCol_TitleBg]               = ImVec4(0.96f, 0.96f, 0.96f, 1.00f);
-		style.Colors[ImGuiCol_TitleBgCollapsed]      = ImVec4(1.00f, 1.00f, 1.00f, 0.51f);
-		style.Colors[ImGuiCol_TitleBgActive]         = ImVec4(0.82f, 0.82f, 0.82f, 1.00f);
-		style.Colors[ImGuiCol_MenuBarBg]             = ImVec4(0.86f, 0.86f, 0.86f, 1.00f);
-		style.Colors[ImGuiCol_ScrollbarBg]           = ImVec4(0.98f, 0.98f, 0.98f, 0.53f);
-		style.Colors[ImGuiCol_ScrollbarGrab]         = ImVec4(0.69f, 0.69f, 0.69f, 0.80f);
-		style.Colors[ImGuiCol_ScrollbarGrabHovered]  = ImVec4(0.49f, 0.49f, 0.49f, 0.80f);
-		style.Colors[ImGuiCol_ScrollbarGrabActive]   = ImVec4(0.49f, 0.49f, 0.49f, 1.00f);
-		style.Colors[ImGuiCol_ComboBg]               = ImVec4(0.86f, 0.86f, 0.86f, 0.99f);
-		style.Colors[ImGuiCol_CheckMark]             = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-		style.Colors[ImGuiCol_SliderGrab]            = ImVec4(0.26f, 0.59f, 0.98f, 0.78f);
-		style.Colors[ImGuiCol_SliderGrabActive]      = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-		style.Colors[ImGuiCol_Button]                = ImVec4(0.26f, 0.59f, 0.98f, 0.40f);
-		style.Colors[ImGuiCol_ButtonHovered]         = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-		style.Colors[ImGuiCol_ButtonActive]          = ImVec4(0.06f, 0.53f, 0.98f, 1.00f);
-		style.Colors[ImGuiCol_Header]                = ImVec4(0.26f, 0.59f, 0.98f, 0.31f);
-		style.Colors[ImGuiCol_HeaderHovered]         = ImVec4(0.26f, 0.59f, 0.98f, 0.80f);
-		style.Colors[ImGuiCol_HeaderActive]          = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-		style.Colors[ImGuiCol_Separator]             = ImVec4(0.39f, 0.39f, 0.39f, 1.00f);
-		style.Colors[ImGuiCol_SeparatorHovered]      = ImVec4(0.26f, 0.59f, 0.98f, 0.78f);
-		style.Colors[ImGuiCol_SeparatorActive]       = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-		style.Colors[ImGuiCol_ResizeGrip]            = ImVec4(1.00f, 1.00f, 1.00f, 0.50f);
-		style.Colors[ImGuiCol_ResizeGripHovered]     = ImVec4(0.26f, 0.59f, 0.98f, 0.67f);
-		style.Colors[ImGuiCol_ResizeGripActive]      = ImVec4(0.26f, 0.59f, 0.98f, 0.95f);
-		style.Colors[ImGuiCol_CloseButton]           = ImVec4(0.59f, 0.59f, 0.59f, 0.50f);
-		style.Colors[ImGuiCol_CloseButtonHovered]    = ImVec4(0.98f, 0.39f, 0.36f, 1.00f);
-		style.Colors[ImGuiCol_CloseButtonActive]     = ImVec4(0.98f, 0.39f, 0.36f, 1.00f);
-		style.Colors[ImGuiCol_PlotLines]             = ImVec4(0.39f, 0.39f, 0.39f, 1.00f);
-		style.Colors[ImGuiCol_PlotLinesHovered]      = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
-		style.Colors[ImGuiCol_PlotHistogram]         = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-		style.Colors[ImGuiCol_PlotHistogramHovered]  = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
-		style.Colors[ImGuiCol_TextSelectedBg]        = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
-		style.Colors[ImGuiCol_PopupBg]               = ImVec4(1.00f, 1.00f, 1.00f, 0.94f);
-		style.Colors[ImGuiCol_ModalWindowDarkening]  = ImVec4(0.20f, 0.20f, 0.20f, 0.35f);
-
 		if (_dark)
 		{
-			for (int i = 0; i <= ImGuiCol_COUNT; i++)
-			{
-				ImVec4& col = style.Colors[i];
-				float H, S, V;
-				ImGui::ColorConvertRGBtoHSV( col.x, col.y, col.z, H, S, V );
-
-				if( S < 0.1f )
-				{
-					V = 1.0f - V;
-				}
-				ImGui::ColorConvertHSVtoRGB( H, S, V, col.x, col.y, col.z );
-			}
+			ImGui::StyleColorsDark(&style);
 		}
+		else
+		{
+			ImGui::StyleColorsLight(&style);
+		}
+
+		style.FrameRounding    = 4.0f;
+		style.WindowBorderSize = 0.0f;
 	}
 
 	void beginFrame(
@@ -397,7 +370,7 @@ struct OcornutImguiContext
 		, int _width
 		, int _height
 		, char _inputChar
-		, uint8_t _viewId
+		, bgfx::ViewId _viewId
 		)
 	{
 		m_viewId = _viewId;
@@ -423,7 +396,7 @@ struct OcornutImguiContext
 		io.MouseWheel = (float)(_scroll - m_lastScroll);
 		m_lastScroll = _scroll;
 
-#if defined(SCI_NAMESPACE)
+#if USE_ENTRY
 		uint8_t modifiers = inputGetModifiersState();
 		io.KeyShift = 0 != (modifiers & (entry::Modifier::LeftShift | entry::Modifier::RightShift) );
 		io.KeyCtrl  = 0 != (modifiers & (entry::Modifier::LeftCtrl  | entry::Modifier::RightCtrl ) );
@@ -432,7 +405,7 @@ struct OcornutImguiContext
 		{
 			io.KeysDown[ii] = inputGetKeyState(entry::Key::Enum(ii) );
 		}
-#endif // defined(SCI_NAMESPACE)
+#endif // USE_ENTRY
 
 		ImGui::NewFrame();
 		ImGui::PushStyleVar(ImGuiStyleVar_ViewId, (float)_viewId);
@@ -444,8 +417,10 @@ struct OcornutImguiContext
 	{
 		ImGui::PopStyleVar(1);
 		ImGui::Render();
+		render(ImGui::GetDrawData() );
 	}
 
+	ImGuiContext*       m_imgui;
 	bx::AllocatorI*     m_allocator;
 	bgfx::VertexDecl    m_decl;
 	bgfx::ProgramHandle m_program;
@@ -456,24 +431,21 @@ struct OcornutImguiContext
 	ImFont* m_font[ImGui::Font::Count];
 	int64_t m_last;
 	int32_t m_lastScroll;
-	uint8_t m_viewId;
+	bgfx::ViewId m_viewId;
 };
 
 static OcornutImguiContext s_ctx;
 
-static void* memAlloc(size_t _size)
+static void* memAlloc(size_t _size, void* _userData)
 {
+	BX_UNUSED(_userData);
 	return BX_ALLOC(s_ctx.m_allocator, _size);
 }
 
-static void memFree(void* _ptr)
+static void memFree(void* _ptr, void* _userData)
 {
+	BX_UNUSED(_userData);
 	BX_FREE(s_ctx.m_allocator, _ptr);
-}
-
-void OcornutImguiContext::renderDrawLists(ImDrawData* _drawData)
-{
-	s_ctx.render(_drawData);
 }
 
 void imguiCreate(float _fontSize, bx::AllocatorI* _allocator)
@@ -486,7 +458,7 @@ void imguiDestroy()
 	s_ctx.destroy();
 }
 
-void imguiBeginFrame(int32_t _mx, int32_t _my, uint8_t _button, int32_t _scroll, uint16_t _width, uint16_t _height, char _inputChar, uint8_t _viewId)
+void imguiBeginFrame(int32_t _mx, int32_t _my, uint8_t _button, int32_t _scroll, uint16_t _width, uint16_t _height, char _inputChar, bgfx::ViewId _viewId)
 {
 	s_ctx.beginFrame(_mx, _my, _button, _scroll, _width, _height, _inputChar, _viewId);
 }
@@ -508,10 +480,10 @@ BX_PRAGMA_DIAGNOSTIC_IGNORED_MSVC(4505); // error C4505: '' : unreferenced local
 BX_PRAGMA_DIAGNOSTIC_IGNORED_CLANG_GCC("-Wunused-function"); // warning: ‘int rect_width_compare(const void*, const void*)’ defined but not used
 BX_PRAGMA_DIAGNOSTIC_PUSH();
 BX_PRAGMA_DIAGNOSTIC_IGNORED_CLANG("-Wunknown-pragmas")
-BX_PRAGMA_DIAGNOSTIC_IGNORED_CLANG_GCC("-Wunused-but-set-variable"); // warning: variable ‘L1’ set but not used
+//BX_PRAGMA_DIAGNOSTIC_IGNORED_CLANG_GCC("-Wunused-but-set-variable"); // warning: variable ‘L1’ set but not used
 BX_PRAGMA_DIAGNOSTIC_IGNORED_CLANG_GCC("-Wtype-limits"); // warning: comparison is always true due to limited range of data type
-#define STBTT_malloc(_size, _userData) memAlloc(_size)
-#define STBTT_free(_ptr, _userData) memFree(_ptr)
+#define STBTT_malloc(_size, _userData) memAlloc(_size, _userData)
+#define STBTT_free(_ptr, _userData) memFree(_ptr, _userData)
 #define STB_RECT_PACK_IMPLEMENTATION
 #include <stb/stb_rect_pack.h>
 #define STB_TRUETYPE_IMPLEMENTATION
