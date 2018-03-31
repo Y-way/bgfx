@@ -1714,11 +1714,10 @@ namespace bgfx
 	void Context::end(Encoder* _encoder)
 	{
 #if BGFX_CONFIG_MULTITHREADED
-		if (BGFX_API_THREAD_MAGIC != s_threadIndex)
+		EncoderImpl* encoder = reinterpret_cast<EncoderImpl*>(_encoder);
+		if (encoder != &m_encoder[0])
 		{
-			EncoderImpl* encoder = reinterpret_cast<EncoderImpl*>(_encoder);
 			encoder->end(true);
-
 			m_encoderEndSem.post();
 		}
 #else
@@ -2027,15 +2026,6 @@ namespace bgfx
 		{ vk::rendererCreate,    vk::rendererDestroy,    BGFX_RENDERER_VULKAN_NAME,     !!BGFX_CONFIG_RENDERER_VULKAN     }, // Vulkan
 	};
 	BX_STATIC_ASSERT(BX_COUNTOF(s_rendererCreator) == RendererType::Count);
-
-	struct Condition
-	{
-		enum Enum
-		{
-			LessEqual,
-			GreaterEqual,
-		};
-	};
 
 	bool windowsVersionIs(Condition::Enum _op, uint32_t _version)
 	{

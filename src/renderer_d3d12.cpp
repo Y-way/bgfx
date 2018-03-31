@@ -534,10 +534,10 @@ namespace bgfx { namespace d3d12
 	}
 
 #if USE_D3D12_DYNAMIC_LIB
-	static PFN_D3D12_CREATE_DEVICE            D3D12CreateDevice;
-	static PFN_D3D12_GET_DEBUG_INTERFACE      D3D12GetDebugInterface;
-	static PFN_D3D12_SERIALIZE_ROOT_SIGNATURE D3D12SerializeRootSignature;
-	static PFN_CREATE_DXGI_FACTORY            CreateDXGIFactory1;
+	static PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES D3D12EnableExperimentalFeatures;
+	static PFN_D3D12_CREATE_DEVICE                D3D12CreateDevice;
+	static PFN_D3D12_GET_DEBUG_INTERFACE          D3D12GetDebugInterface;
+	static PFN_D3D12_SERIALIZE_ROOT_SIGNATURE     D3D12SerializeRootSignature;
 
 	typedef HANDLE  (WINAPI* PFN_CREATE_EVENT_EX_A)(LPSECURITY_ATTRIBUTES _attrs, LPCSTR _name, DWORD _flags, DWORD _access);
 	static PFN_CREATE_EVENT_EX_A CreateEventExA;
@@ -676,6 +676,8 @@ namespace bgfx { namespace d3d12
 
 			errorState = ErrorState::LoadedKernel32;
 
+			m_nvapi.init();
+
 			m_d3d12dll = bx::dlopen("d3d12.dll");
 			if (NULL == m_d3d12dll)
 			{
@@ -684,6 +686,9 @@ namespace bgfx { namespace d3d12
 			}
 
 			errorState = ErrorState::LoadedD3D12;
+
+			D3D12EnableExperimentalFeatures = (PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES)bx::dlsym(m_d3d12dll, "D3D12EnableExperimentalFeatures");
+			BX_WARN(NULL != D3D12EnableExperimentalFeatures, "Function D3D12EnableExperimentalFeatures not found.");
 
 			D3D12CreateDevice = (PFN_D3D12_CREATE_DEVICE)bx::dlsym(m_d3d12dll, "D3D12CreateDevice");
 			BX_WARN(NULL != D3D12CreateDevice, "Function D3D12CreateDevice not found.");
@@ -721,7 +726,7 @@ namespace bgfx { namespace d3d12
 				{
 					if (BX_ENABLED(BGFX_CONFIG_DEBUG) )
 					{
-						debug0->EnableDebugLayer();
+//						debug0->EnableDebugLayer();
 
 #if BX_PLATFORM_WINDOWS
 						{
@@ -733,6 +738,8 @@ namespace bgfx { namespace d3d12
 //								debug1->SetEnableGPUBasedValidation(true);
 //								debug1->SetEnableSynchronizedCommandQueueValidation(true);
 							}
+
+							DX_RELEASE(debug1, 1);
 						}
 #elif BX_PLATFORM_XBOXONE
 						debug0->SetProcessDebugFlags(D3D12_PROCESS_DEBUG_FLAG_DEBUG_LAYER_ENABLED);
@@ -746,8 +753,9 @@ namespace bgfx { namespace d3d12
 						debug0->SetProcessDebugFlags(D3D12XBOX_PROCESS_DEBUG_FLAG_INSTRUMENTED);
 					}
 #endif // BX_PLATFORM_XBOXONE
-				}
 
+					DX_RELEASE(debug0, 0);
+				}
 			}
 
 			{
@@ -786,6 +794,11 @@ namespace bgfx { namespace d3d12
 			}
 
 			m_dxgi.update(m_device);
+
+			if (BGFX_PCI_ID_NVIDIA != m_dxgi.m_adapterDesc.VendorId)
+			{
+				m_nvapi.shutdown();
+			}
 
 			{
 				uint32_t numNodes = m_device->GetNodeCount();
@@ -840,10 +853,9 @@ namespace bgfx { namespace d3d12
 				m_scd.swapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
 				m_scd.alphaMode  = DXGI_ALPHA_MODE_IGNORE;
 				m_scd.flags      = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-					;
-				m_scd.nwh      = g_platformData.nwh;
-				m_scd.ndt      = g_platformData.ndt;
-				m_scd.windowed = true;
+				m_scd.nwh        = g_platformData.nwh;
+				m_scd.ndt        = g_platformData.ndt;
+				m_scd.windowed   = true;
 
 				m_backBufferColorIdx = m_scd.bufferCount-1;
 
@@ -935,13 +947,13 @@ namespace bgfx { namespace d3d12
 				for (uint32_t ii = 0; ii < BX_COUNTOF(m_scratchBuffer); ++ii)
 				{
 					m_scratchBuffer[ii].create(BGFX_CONFIG_MAX_DRAW_CALLS*1024
-							, BGFX_CONFIG_MAX_TEXTURES + BGFX_CONFIG_MAX_SHADERS + BGFX_CONFIG_MAX_DRAW_CALLS
-							);
+						, BGFX_CONFIG_MAX_TEXTURES + BGFX_CONFIG_MAX_SHADERS + BGFX_CONFIG_MAX_DRAW_CALLS
+						);
 				}
 				m_samplerAllocator.create(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
-						, 1024
-						, BGFX_CONFIG_MAX_TEXTURE_SAMPLERS
-						);
+					, 1024
+					, BGFX_CONFIG_MAX_TEXTURE_SAMPLERS
+					);
 
 				D3D12_DESCRIPTOR_RANGE descRange[] =
 				{
@@ -1168,7 +1180,7 @@ namespace bgfx { namespace d3d12
 				postReset();
 
 				m_batch.create(4<<10);
-				m_batch.setIndirectMode(BGFX_PCI_ID_NVIDIA != m_adapterDesc.VendorId);
+				m_batch.setIndirectMode(BGFX_PCI_ID_NVIDIA != m_dxgi.m_adapterDesc.VendorId);
 
 				m_gpuTimer.init();
 				m_occlusionQuery.init();
@@ -1199,6 +1211,13 @@ namespace bgfx { namespace d3d12
 				}
 			}
 
+			if (m_nvapi.isInitialized() )
+			{
+				finish();
+				m_commandList = m_cmd.alloc();
+				m_nvapi.initAftermath(m_device, m_commandList);
+			}
+
 			g_internalData.context = m_device;
 			return true;
 
@@ -1227,6 +1246,8 @@ namespace bgfx { namespace d3d12
 #endif // USE_D3D12_DYNAMIC_LIB
 			case ErrorState::Default:
 			default:
+				m_nvapi.shutdown();
+
 				unloadRenderDoc(m_renderdocdll);
 				bx::dlclose(m_winPixEvent);
 				m_winPixEvent = NULL;
@@ -1284,13 +1305,13 @@ namespace bgfx { namespace d3d12
 			}
 
 			DX_RELEASE(m_rootSignature, 0);
-
 			DX_RELEASE(m_swapChain, 0);
 
 			m_cmd.shutdown();
 
-			DX_RELEASE(m_device,  0);
+			DX_RELEASE(m_device, 0);
 
+			m_nvapi.shutdown();
 			m_dxgi.shutdown();
 
 			unloadRenderDoc(m_renderdocdll);
@@ -1877,7 +1898,7 @@ namespace bgfx { namespace d3d12
 			resourceDesc.Width     = bx::uint32_max(m_resolution.m_width,  1);
 			resourceDesc.Height    = bx::uint32_max(m_resolution.m_height, 1);
 			resourceDesc.DepthOrArraySize   = 1;
-			resourceDesc.MipLevels          = 0;
+			resourceDesc.MipLevels          = 1;
 			resourceDesc.Format             = DXGI_FORMAT_D24_UNORM_S8_UINT;
 			resourceDesc.SampleDesc.Count   = 1;
 			resourceDesc.SampleDesc.Quality = 0;
@@ -1905,12 +1926,13 @@ namespace bgfx { namespace d3d12
 				, getCPUHandleHeapStart(m_dsvDescriptorHeap)
 				);
 
+			m_commandList = m_cmd.alloc();
+
 			for (uint32_t ii = 0; ii < BX_COUNTOF(m_frameBuffers); ++ii)
 			{
 				m_frameBuffers[ii].postReset();
 			}
 
-			m_commandList = m_cmd.alloc();
 //			capturePostReset();
 		}
 
@@ -2973,6 +2995,7 @@ data.NumQualityLevels = 0;
 		}
 
 		Dxgi m_dxgi;
+		NvApi m_nvapi;
 
 		void* m_kernel32dll;
 		void* m_d3d12dll;
@@ -2982,7 +3005,6 @@ data.NumQualityLevels = 0;
 		D3D_FEATURE_LEVEL m_featureLevel;
 
 		D3D_DRIVER_TYPE m_driverType;
-		DXGI_ADAPTER_DESC m_adapterDesc;
 		D3D12_FEATURE_DATA_ARCHITECTURE m_architecture;
 		D3D12_FEATURE_DATA_D3D12_OPTIONS m_options;
 
@@ -4867,6 +4889,15 @@ data.NumQualityLevels = 0;
 							, &dsvDesc
 							, dsvDescriptor
 							);
+
+						s_renderD3D12->m_commandList->ClearDepthStencilView(
+							  dsvDescriptor
+							, D3D12_CLEAR_FLAG_DEPTH|D3D12_CLEAR_FLAG_STENCIL
+							, 0.0f
+							, 0
+							, 0
+							, NULL
+							);
 					}
 					else
 					{
@@ -4921,6 +4952,15 @@ data.NumQualityLevels = 0;
 							, &desc
 							, rtv
 							);
+
+						float rgba[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+						s_renderD3D12->m_commandList->ClearRenderTargetView(
+							  rtv
+							, rgba
+							, 0
+							, NULL
+							);
+
 						m_num++;
 					}
 				}
@@ -5480,6 +5520,8 @@ data.NumQualityLevels = 0;
 					m_batch.flush(m_commandList, true);
 					kick();
 
+					commandListChanged = true;
+
 					view = key.m_view;
 					currentPso = NULL;
 					currentSamplerStateIdx = kInvalidHandle;
@@ -5545,6 +5587,13 @@ data.NumQualityLevels = 0;
 							PIX3_ENDEVENT(m_commandList);
 							PIX3_BEGINEVENT(m_commandList, D3DCOLOR_COMPUTE, viewName);
 						}
+
+						commandListChanged = true;
+					}
+
+					if (commandListChanged)
+					{
+						commandListChanged = false;
 
 						m_commandList->SetComputeRootSignature(m_rootSignature);
 						ID3D12DescriptorHeap* heaps[] = {
@@ -5707,14 +5756,47 @@ data.NumQualityLevels = 0;
 					continue;
 				}
 
+				bool resetState = viewChanged || wasCompute;
+
+				if (wasCompute)
+				{
+					wasCompute = false;
+
+					if (BX_ENABLED(BGFX_CONFIG_DEBUG_PIX) )
+					{
+						BX_UNUSED(s_viewName);
+ 						char* viewName = s_viewName[view];
+ 						viewName[3] = ' ';
+ 						PIX3_ENDEVENT(m_commandList);
+ 						PIX3_BEGINEVENT(m_commandList, D3DCOLOR_DRAW, viewName);
+					}
+
+					commandListChanged = true;
+				}
+
 				const RenderDraw& draw = renderItem.draw;
 
 				const bool hasOcclusionQuery = 0 != (draw.m_stateFlags & BGFX_STATE_INTERNAL_OCCLUSION_QUERY);
-				if (isValid(draw.m_occlusionQuery)
-				&&  !hasOcclusionQuery
-				&&  !isVisible(_render, draw.m_occlusionQuery, 0 != (draw.m_submitFlags&BGFX_SUBMIT_INTERNAL_OCCLUSION_VISIBLE) ) )
 				{
-					continue;
+					const bool occluded = true
+						&& isValid(draw.m_occlusionQuery)
+						&& !hasOcclusionQuery
+						&& !isVisible(_render, draw.m_occlusionQuery, 0 != (draw.m_submitFlags&BGFX_SUBMIT_INTERNAL_OCCLUSION_VISIBLE) )
+						;
+
+					if (occluded
+					||  _render->m_frameCache.isZeroArea(viewScissorRect, draw.m_scissor) )
+					{
+						if (resetState)
+						{
+							currentState.clear();
+							currentState.m_scissor = !draw.m_scissor;
+							currentBind.clear();
+							commandListChanged = true;
+						}
+
+						continue;
+					}
 				}
 
 				const uint64_t newFlags = draw.m_stateFlags;
@@ -5725,22 +5807,18 @@ data.NumQualityLevels = 0;
 				uint64_t changedStencil = (currentState.m_stencil ^ draw.m_stencil) & BGFX_STENCIL_FUNC_REF_MASK;
 				currentState.m_stencil = newStencil;
 
-				if (viewChanged
-				||  wasCompute)
+				if (resetState)
 				{
-					if (wasCompute)
-					{
-						wasCompute = false;
-					}
+					wasCompute = false;
 
-					if (BX_ENABLED(BGFX_CONFIG_DEBUG_PIX) )
-					{
-						BX_UNUSED(s_viewName);
- 						char* viewName = s_viewName[view];
- 						viewName[3] = ' ';
- 						PIX3_ENDEVENT(m_commandList);
- 						PIX3_BEGINEVENT(m_commandList, D3DCOLOR_DRAW, viewName);
-					}
+					currentState.clear();
+					currentState.m_scissor = !draw.m_scissor;
+					changedFlags = BGFX_STATE_MASK;
+					changedStencil = packStencil(BGFX_STENCIL_MASK, BGFX_STENCIL_MASK);
+					currentState.m_stateFlags = newFlags;
+					currentState.m_stencil    = newStencil;
+
+					currentBind.clear();
 
 					commandListChanged = true;
 				}
@@ -6176,7 +6254,7 @@ data.NumQualityLevels = 0;
 					, (m_featureLevel >>  8) & 0xf
 					);
 
-				const DXGI_ADAPTER_DESC& desc = m_adapterDesc;
+				const DXGI_ADAPTER_DESC& desc = m_dxgi.m_adapterDesc;
 				char description[BX_COUNTOF(desc.Description)];
 				wcstombs(description, desc.Description, BX_COUNTOF(desc.Description) );
 				tvm.printf(0, pos++, 0x8f, " Device: %s", description);
