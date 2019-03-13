@@ -9,6 +9,7 @@ BX_PRAGMA_DIAGNOSTIC_PUSH()
 BX_PRAGMA_DIAGNOSTIC_IGNORED_MSVC(4100) // error C4100: 'inclusionDepth' : unreferenced formal parameter
 BX_PRAGMA_DIAGNOSTIC_IGNORED_MSVC(4265) // error C4265: 'spv::spirvbin_t': class has virtual functions, but destructor is not virtual
 BX_PRAGMA_DIAGNOSTIC_IGNORED_CLANG_GCC("-Wshadow") // warning: declaration of 'userData' shadows a member of 'glslang::TShader::Includer::IncludeResult'
+#define ENABLE_OPT 1
 #include <ShaderLang.h>
 #include <ResourceLimits.h>
 #include <SPIRV/SPVRemapper.h>
@@ -136,16 +137,26 @@ namespace bgfx { namespace spirv
 		8,     // MaxCullDistances
 		8,     // MaxCombinedClipAndCullDistances
 		4,     // MaxSamples
-		{      // limits
-			1, // nonInductiveForLoops
-			1, // whileLoops
-			1, // doWhileLoops
-			1, // generalUniformIndexing
-			1, // generalAttributeMatrixVectorIndexing
-			1, // generalVaryingIndexing
-			1, // generalSamplerIndexing
-			1, // generalVariableIndexing
-			1, // generalConstantMatrixVectorIndexing
+		0,     // maxMeshOutputVerticesNV;
+		0,     // maxMeshOutputPrimitivesNV;
+		0,     // maxMeshWorkGroupSizeX_NV;
+		0,     // maxMeshWorkGroupSizeY_NV;
+		0,     // maxMeshWorkGroupSizeZ_NV;
+		0,     // maxTaskWorkGroupSizeX_NV;
+		0,     // maxTaskWorkGroupSizeY_NV;
+		0,     // maxTaskWorkGroupSizeZ_NV;
+		0,     // maxMeshViewCountNV
+
+		{ // limits
+			true, // nonInductiveForLoops
+			true, // whileLoops
+			true, // doWhileLoops
+			true, // generalUniformIndexing
+			true, // generalAttributeMatrixVectorIndexing
+			true, // generalVaryingIndexing
+			true, // generalSamplerIndexing
+			true, // generalVariableIndexing
+			true, // generalConstantMatrixVectorIndexing
 		},
 	};
 
@@ -533,7 +544,43 @@ namespace bgfx { namespace spirv
 //		fprintf(stderr, "%s\n", _message);
 //	}
 
-	static bool compile(const Options& _options, uint32_t _version, const std::string& _code, bx::WriterI* _writer)
+	static const char* s_attribName[] =
+	{
+		"a_position",
+		"a_normal",
+		"a_tangent",
+		"a_bitangent",
+		"a_color0",
+		"a_color1",
+		"a_color2",
+		"a_color3",
+		"a_indices",
+		"a_weight",
+		"a_texcoord0",
+		"a_texcoord1",
+		"a_texcoord2",
+		"a_texcoord3",
+		"a_texcoord4",
+		"a_texcoord5",
+		"a_texcoord6",
+		"a_texcoord7",
+	};
+	BX_STATIC_ASSERT(bgfx::Attrib::Count == BX_COUNTOF(s_attribName) );
+
+	bgfx::Attrib::Enum toAttribEnum(const bx::StringView& _name)
+	{
+		for (uint8_t ii = 0; ii < Attrib::Count; ++ii)
+		{
+			if (0 == bx::strCmp(s_attribName[ii], _name) )
+			{
+				return bgfx::Attrib::Enum(ii);
+			}
+		}
+
+		return bgfx::Attrib::Count;
+	}
+
+	static bool compile(const Options& _options, uint32_t _version, const std::string& _code, bx::WriterI* _writer, bool _firstPass)
 	{
 		BX_UNUSED(_version);
 
@@ -570,7 +617,6 @@ namespace bgfx { namespace spirv
 			);
 		bool linked = false;
 		bool validated = true;
-		bool optimized = true;
 
 		if (!compiled)
 		{
@@ -583,13 +629,13 @@ namespace bgfx { namespace spirv
 				int32_t start   = 0;
 				int32_t end     = INT32_MAX;
 
-				const char* err = bx::strFind(log, "ERROR:");
+				bx::StringView err = bx::strFind(log, "ERROR:");
 
 				bool found = false;
 
-				if (NULL != err)
+				if (!err.isEmpty() )
 				{
-					found = 2 == sscanf(err, "ERROR: %u:%u: '", &source, &line);
+					found = 2 == sscanf(err.getPtr(), "ERROR: %u:%u: '", &source, &line);
 					if (found)
 					{
 						++line;
@@ -625,7 +671,59 @@ namespace bgfx { namespace spirv
 			}
 			else
 			{
+				uint16_t size = 0;
+
 				program->buildReflection();
+
+				if (_firstPass)
+				{
+					const size_t strLength = bx::strLen("uniform");
+
+					// first time through, we just find unused uniforms and get rid of them
+					std::string output;
+					bx::Error err;
+					LineReader reader(_code.c_str() );
+					while (err.isOk() )
+					{
+						char str[4096];
+						int32_t len = bx::read(&reader, str, BX_COUNTOF(str), &err);
+						if (err.isOk() )
+						{
+							std::string strLine(str, len);
+
+							size_t index = strLine.find("uniform ");
+							if (index != std::string::npos)
+							{
+								bool found = false;
+
+								for (int32_t ii = 0, num = program->getNumLiveUniformVariables(); ii < num; ++ii)
+								{
+									// matching lines like:  uniform u_name;
+									// we want to replace "uniform" with "static" so that it's no longer
+									// included in the uniform blob that the application must upload
+									// we can't just remove them, because unused functions might still reference
+									// them and cause a compile error when they're gone
+									if (!bx::findIdentifierMatch(strLine.c_str(), program->getUniformName(ii) ).isEmpty() )
+									{
+										found = true;
+										break;
+									}
+								}
+
+								if (!found)
+								{
+									strLine = strLine.replace(index, strLength, "static");
+								}
+							}
+
+							output += strLine;
+						}
+					}
+
+					// recompile with the unused uniforms converted to statics
+					return compile(_options, _version, output.c_str(), _writer, false);
+				}
+
 				{
 					uint16_t count = (uint16_t)program->getNumLiveUniformVariables();
 					bx::write(_writer, count);
@@ -635,27 +733,34 @@ namespace bgfx { namespace spirv
 					{
 						Uniform un;
 						un.name = program->getUniformName(ii);
+
+						un.num = uint8_t(program->getUniformArraySize(ii) );
+						const uint32_t offset = program->getUniformBufferOffset(ii);
+						un.regIndex = uint16_t(offset);
+						un.regCount = un.num;
+
 						switch (program->getUniformType(ii))
 						{
 						case 0x1404: // GL_INT:
-							un.type = UniformType::Int1;
+							un.type = UniformType::Sampler;
 							break;
 						case 0x8B52: // GL_FLOAT_VEC4:
 							un.type = UniformType::Vec4;
 							break;
 						case 0x8B5B: // GL_FLOAT_MAT3:
 							un.type = UniformType::Mat3;
+							un.regCount *= 3;
 							break;
 						case 0x8B5C: // GL_FLOAT_MAT4:
 							un.type = UniformType::Mat4;
+							un.regCount *= 4;
 							break;
 						default:
 							un.type = UniformType::End;
 							break;
 						}
-						un.num = uint8_t(program->getUniformArraySize(ii) );
-						un.regIndex = 0;
-						un.regCount = un.num;
+
+						size += un.regCount*16;
 
 						uint8_t nameSize = (uint8_t)un.name.size();
 						bx::write(_writer, nameSize);
@@ -683,29 +788,41 @@ namespace bgfx { namespace spirv
 
 				glslang::TIntermediate* intermediate = program->getIntermediate(stage);
 				std::vector<uint32_t> spirv;
-				glslang::GlslangToSpv(*intermediate, spirv);
-				spv::spirvbin_t spvBin;
-				spvBin.remap(
-					  spirv
-					, 0
-					| spv::spirvbin_t::DCE_ALL
-					| spv::spirvbin_t::OPT_ALL
-					| spv::spirvbin_t::MAP_ALL
-					);
+
+				glslang::SpvOptions options;
+				options.disableOptimizer = false;
+
+				glslang::GlslangToSpv(*intermediate, spirv, &options);
 
 				bx::Error err;
 				bx::WriterI* writer = bx::getDebugOut();
 				bx::MemoryReader reader(spirv.data(), uint32_t(spirv.size()*4) );
 				disassemble(writer, &reader, &err);
 
-				if (optimized)
+				uint32_t shaderSize = (uint32_t)spirv.size()*sizeof(uint32_t);
+				bx::write(_writer, shaderSize);
+				bx::write(_writer, spirv.data(), shaderSize);
+				uint8_t nul = 0;
+				bx::write(_writer, nul);
+
+				//
+				const uint8_t numAttr = (uint8_t)program->getNumLiveAttributes();
+				bx::write(_writer, numAttr);
+
+				for (uint8_t ii = 0; ii < numAttr; ++ii)
 				{
-					uint32_t shaderSize = (uint32_t)spirv.size()*sizeof(uint32_t);
-					bx::write(_writer, shaderSize);
-					bx::write(_writer, spirv.data(), shaderSize);
-					uint8_t nul = 0;
-					bx::write(_writer, nul);
+					bgfx::Attrib::Enum attr = toAttribEnum(program->getAttributeName(ii) );
+					if (bgfx::Attrib::Count != attr)
+					{
+						bx::write(_writer, bgfx::attribToId(attr) );
+					}
+					else
+					{
+						bx::write(_writer, uint16_t(UINT16_MAX) );
+					}
 				}
+
+				bx::write(_writer, size);
 			}
 		}
 
@@ -714,14 +831,14 @@ namespace bgfx { namespace spirv
 
 		glslang::FinalizeProcess();
 
-		return compiled && linked && validated && optimized;
+		return compiled && linked && validated;
 	}
 
 } // namespace spirv
 
 	bool compileSPIRVShader(const Options& _options, uint32_t _version, const std::string& _code, bx::WriterI* _writer)
 	{
-		return spirv::compile(_options, _version, _code, _writer);
+		return spirv::compile(_options, _version, _code, _writer, true);
 	}
 
 } // namespace bgfx

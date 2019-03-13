@@ -29,8 +29,13 @@ public:
 		m_debug  = BGFX_DEBUG_TEXT;
 		m_reset  = BGFX_RESET_VSYNC;
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_width, m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_width;
+		init.resolution.height = m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		// Enable debug text.
 		bgfx::setDebug(m_debug);
@@ -84,8 +89,8 @@ public:
 			// Use debug font to print information about this example.
 			bgfx::dbgTextClear();
 			bgfx::dbgTextImage(
-				  bx::uint16_max(uint16_t(m_width /2/8 ), 20)-20
-				, bx::uint16_max(uint16_t(m_height/2/16),  6)-6
+				  bx::max<uint16_t>(uint16_t(m_width /2/8 ), 20)-20
+				, bx::max<uint16_t>(uint16_t(m_height/2/16),  6)-6
 				, 40
 				, 12
 				, s_logo

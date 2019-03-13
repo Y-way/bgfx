@@ -154,8 +154,13 @@ public:
 		m_debug  = BGFX_DEBUG_NONE;
 		m_reset  = BGFX_RESET_VSYNC;
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_width, m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_width;
+		init.resolution.height = m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		// Enable m_debug text.
 		bgfx::setDebug(m_debug);
@@ -163,11 +168,11 @@ public:
 		// Create vertex stream declaration.
 		PosColorTexCoord0Vertex::init();
 
-		m_uffizi = loadTexture("textures/uffizi.dds"
+		m_uffizi = loadTexture("textures/uffizi.ktx"
 				, 0
-				| BGFX_TEXTURE_U_CLAMP
-				| BGFX_TEXTURE_V_CLAMP
-				| BGFX_TEXTURE_W_CLAMP
+				| BGFX_SAMPLER_U_CLAMP
+				| BGFX_SAMPLER_V_CLAMP
+				| BGFX_SAMPLER_W_CLAMP
 				);
 
 		m_skyProgram     = loadProgram("vs_hdr_skybox",  "fs_hdr_skybox");
@@ -178,10 +183,10 @@ public:
 		m_meshProgram    = loadProgram("vs_hdr_mesh",    "fs_hdr_mesh");
 		m_tonemapProgram = loadProgram("vs_hdr_tonemap", "fs_hdr_tonemap");
 
-		s_texCube   = bgfx::createUniform("s_texCube",  bgfx::UniformType::Int1);
-		s_texColor  = bgfx::createUniform("s_texColor", bgfx::UniformType::Int1);
-		s_texLum    = bgfx::createUniform("s_texLum",   bgfx::UniformType::Int1);
-		s_texBlur   = bgfx::createUniform("s_texBlur",  bgfx::UniformType::Int1);
+		s_texCube   = bgfx::createUniform("s_texCube",  bgfx::UniformType::Sampler);
+		s_texColor  = bgfx::createUniform("s_texColor", bgfx::UniformType::Sampler);
+		s_texLum    = bgfx::createUniform("s_texLum",   bgfx::UniformType::Sampler);
+		s_texBlur   = bgfx::createUniform("s_texBlur",  bgfx::UniformType::Sampler);
 		u_mtx       = bgfx::createUniform("u_mtx",      bgfx::UniformType::Mat4);
 		u_tonemap   = bgfx::createUniform("u_tonemap",  bgfx::UniformType::Vec4);
 		u_offset    = bgfx::createUniform("u_offset",   bgfx::UniformType::Vec4, 16);
@@ -302,10 +307,10 @@ public:
 					, false
 					, 1
 					, bgfx::TextureFormat::BGRA8
-					, ((msaa + 1) << BGFX_TEXTURE_RT_MSAA_SHIFT) | BGFX_TEXTURE_U_CLAMP | BGFX_TEXTURE_V_CLAMP
+					, (uint64_t(msaa + 1) << BGFX_TEXTURE_RT_MSAA_SHIFT) | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP
 					);
 
-				const uint32_t textureFlags = BGFX_TEXTURE_RT_WRITE_ONLY|( (msaa+1)<<BGFX_TEXTURE_RT_MSAA_SHIFT);
+				const uint64_t textureFlags = BGFX_TEXTURE_RT_WRITE_ONLY|(uint64_t(msaa+1)<<BGFX_TEXTURE_RT_MSAA_SHIFT);
 
 				bgfx::TextureFormat::Enum depthFormat =
 					  bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::D16,   textureFlags) ? bgfx::TextureFormat::D16
@@ -464,8 +469,8 @@ public:
 				bgfx::setViewTransform(ii, NULL, proj);
 			}
 
-			float at[3]  = { 0.0f, 1.0f, 0.0f };
-			float eye[3] = { 0.0f, 1.0f, -2.5f };
+			const bx::Vec3 at  = { 0.0f, 1.0f,  0.0f };
+			const bx::Vec3 eye = { 0.0f, 1.0f, -2.5f };
 
 			float mtx[16];
 			bx::mtxRotateXY(mtx
@@ -473,11 +478,10 @@ public:
 					, m_time
 					);
 
-			float temp[4];
-			bx::vec3MulMtx(temp, eye, mtx);
+			const bx::Vec3 tmp = bx::mul(eye, mtx);
 
 			float view[16];
-			bx::mtxLookAt(view, temp, at);
+			bx::mtxLookAt(view, tmp, at);
 			bx::mtxProj(proj, 60.0f, float(m_width)/float(m_height), 0.1f, 100.0f, caps->homogeneousDepth);
 
 			// Set view and projection matrix for view hdrMesh.

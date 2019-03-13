@@ -83,8 +83,13 @@ public:
 		m_debug  = BGFX_DEBUG_TEXT;
 		m_reset  = BGFX_RESET_VSYNC;
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_width, m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_width;
+		init.resolution.height = m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		const bgfx::Caps* caps = bgfx::getCaps();
 		bool swapChainSupported = 0 != (caps->supported & BGFX_CAPS_SWAP_CHAIN);
@@ -152,6 +157,7 @@ public:
 			}
 		}
 
+		inputRemoveBindings("22-windows");
 		BX_FREE(entry::getAllocator(), m_bindings);
 
 		// Cleanup.
@@ -225,8 +231,8 @@ public:
 				}
 			}
 
-			float at[3]  = { 0.0f, 0.0f,   0.0f };
-			float eye[3] = { 0.0f, 0.0f, -35.0f };
+			const bx::Vec3 at  = { 0.0f, 0.0f,   0.0f };
+			const bx::Vec3 eye = { 0.0f, 0.0f, -35.0f };
 
 			float view[16];
 			bx::mtxLookAt(view, eye, at);

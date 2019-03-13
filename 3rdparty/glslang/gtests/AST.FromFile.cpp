@@ -121,6 +121,7 @@ INSTANTIATE_TEST_CASE_P(
         "310.tese",
         "310implicitSizeArrayError.vert",
         "310AofA.vert",
+        "310runtimeArray.vert",
         "320.comp",
         "320.vert",
         "320.geom",
@@ -199,11 +200,15 @@ INSTANTIATE_TEST_CASE_P(
         "loopsArtificial.frag",
         "matrix.frag",
         "matrix2.frag",
+        "mixedArrayDecls.frag",
+        "nonuniform.frag",
         "newTexture.frag",
         "Operations.frag",
         "overlongLiteral.frag",
         "prepost.frag",
+        "runtimeArray.vert",
         "simpleFunctionCall.frag",
+        "stringToDouble.vert",
         "structAssignment.frag",
         "structDeref.frag",
         "structure.frag",
@@ -226,6 +231,7 @@ INSTANTIATE_TEST_CASE_P(
         "precise_struct_block.vert",
         "maxClipDistances.vert",
         "findFunction.frag",
+        "constantUnaryConversion.comp"
     })),
     FileNameAsCustomTestSuffix
 );

@@ -527,6 +527,32 @@ enum TOperator {
     EOpSubgroupQuadSwapHorizontal,
     EOpSubgroupQuadSwapVertical,
     EOpSubgroupQuadSwapDiagonal,
+
+#ifdef NV_EXTENSIONS
+    EOpSubgroupPartition,
+    EOpSubgroupPartitionedAdd,
+    EOpSubgroupPartitionedMul,
+    EOpSubgroupPartitionedMin,
+    EOpSubgroupPartitionedMax,
+    EOpSubgroupPartitionedAnd,
+    EOpSubgroupPartitionedOr,
+    EOpSubgroupPartitionedXor,
+    EOpSubgroupPartitionedInclusiveAdd,
+    EOpSubgroupPartitionedInclusiveMul,
+    EOpSubgroupPartitionedInclusiveMin,
+    EOpSubgroupPartitionedInclusiveMax,
+    EOpSubgroupPartitionedInclusiveAnd,
+    EOpSubgroupPartitionedInclusiveOr,
+    EOpSubgroupPartitionedInclusiveXor,
+    EOpSubgroupPartitionedExclusiveAdd,
+    EOpSubgroupPartitionedExclusiveMul,
+    EOpSubgroupPartitionedExclusiveMin,
+    EOpSubgroupPartitionedExclusiveMax,
+    EOpSubgroupPartitionedExclusiveAnd,
+    EOpSubgroupPartitionedExclusiveOr,
+    EOpSubgroupPartitionedExclusiveXor,
+#endif
+
     EOpSubgroupGuardStop,
 
 #ifdef AMD_EXTENSIONS
@@ -566,6 +592,8 @@ enum TOperator {
     EOpAtomicXor,
     EOpAtomicExchange,
     EOpAtomicCompSwap,
+    EOpAtomicLoad,
+    EOpAtomicStore,
 
     EOpAtomicCounterIncrement, // results in pre-increment value
     EOpAtomicCounterDecrement, // results in post-decrement value
@@ -703,6 +731,7 @@ enum TOperator {
     EOpConstructF16Mat4x4,
     EOpConstructStruct,
     EOpConstructTextureSampler,
+    EOpConstructNonuniform,     // expected to be transformed away, not present in final AST
     EOpConstructGuardEnd,
 
     //
@@ -729,7 +758,11 @@ enum TOperator {
     // Array operators
     //
 
-    EOpArrayLength,      // "Array" distinguishes from length(v) built-in function, but it applies to vectors and matrices as well.
+    // Can apply to arrays, vectors, or matrices.
+    // Can be decomposed to a constant at compile time, but this does not always happen,
+    // due to link-time effects. So, consumer can expect either a link-time sized or
+    // run-time sized array.
+    EOpArrayLength,
 
     //
     // Image operations
@@ -753,6 +786,8 @@ enum TOperator {
     EOpImageAtomicXor,
     EOpImageAtomicExchange,
     EOpImageAtomicCompSwap,
+    EOpImageAtomicLoad,
+    EOpImageAtomicStore,
 
     EOpSubpassLoad,
     EOpSubpassLoadMS,
@@ -830,6 +865,16 @@ enum TOperator {
 #endif
 
     EOpSparseTextureGuardEnd,
+
+#ifdef NV_EXTENSIONS
+    EOpImageFootprintGuardBegin,
+    EOpImageSampleFootprintNV,
+    EOpImageSampleFootprintClampNV,
+    EOpImageSampleFootprintLodNV,
+    EOpImageSampleFootprintGradNV,
+    EOpImageSampleFootprintGradClampNV,
+    EOpImageFootprintGuardEnd,
+#endif
     EOpSamplingGuardEnd,
     EOpTextureGuardEnd,
 
@@ -848,6 +893,14 @@ enum TOperator {
     EOpFindLSB,
     EOpFindMSB,
 
+#ifdef NV_EXTENSIONS
+    EOpTraceNV,
+    EOpReportIntersectionNV,
+    EOpIgnoreIntersectionNV,
+    EOpTerminateRayNV,
+    EOpExecuteCallableNV,
+    EOpWritePackedPrimitiveIndices4x8NV,
+#endif
     //
     // HLSL operations
     //
@@ -1133,6 +1186,7 @@ public:
         constSubtree(nullptr)
           { name = n; }
     virtual int getId() const { return id; }
+    virtual void changeId(int i) { id = i; }
     virtual const TString& getName() const { return name; }
     virtual void traverse(TIntermTraverser*);
     virtual       TIntermSymbol* getAsSymbolNode()       { return this; }
@@ -1212,6 +1266,9 @@ public:
     bool isSampling() const { return op > EOpSamplingGuardBegin && op < EOpSamplingGuardEnd; }
     bool isImage()    const { return op > EOpImageGuardBegin    && op < EOpImageGuardEnd; }
     bool isSparseTexture() const { return op > EOpSparseTextureGuardBegin && op < EOpSparseTextureGuardEnd; }
+#ifdef NV_EXTENSIONS
+    bool isImageFootprint() const { return op > EOpImageFootprintGuardBegin && op < EOpImageFootprintGuardEnd; }
+#endif
     bool isSparseImage()   const { return op == EOpSparseImageLoad; }
 
     void setOperationPrecision(TPrecisionQualifier p) { operationPrecision = p; }
@@ -1383,6 +1440,23 @@ public:
         case EOpFragmentFetch:
             cracked.subpass = sampler.dim == EsdSubpass;
             cracked.fragMask = true;
+            break;
+#endif
+#ifdef NV_EXTENSIONS
+        case EOpImageSampleFootprintNV:
+            break;
+        case EOpImageSampleFootprintClampNV:
+            cracked.lodClamp = true;
+            break;
+        case EOpImageSampleFootprintLodNV:
+            cracked.lod = true;
+            break;
+        case EOpImageSampleFootprintGradNV:
+            cracked.grad = true;
+            break;
+        case EOpImageSampleFootprintGradClampNV:
+            cracked.lodClamp = true;
+            cracked.grad = true;
             break;
 #endif
         case EOpSubpassLoad:

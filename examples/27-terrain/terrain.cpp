@@ -76,8 +76,13 @@ public:
 		m_debug  = BGFX_DEBUG_NONE;
 		m_reset  = BGFX_RESET_VSYNC;
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_width, m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_width;
+		init.resolution.height = m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		// Enable m_debug text.
 		bgfx::setDebug(m_debug);
@@ -107,7 +112,7 @@ public:
 		m_dvbh.idx = bgfx::kInvalidHandle;
 		m_dibh.idx = bgfx::kInvalidHandle;
 		m_heightTexture.idx = bgfx::kInvalidHandle;
-		s_heightTexture = bgfx::createUniform("s_heightTexture", bgfx::UniformType::Int1);
+		s_heightTexture = bgfx::createUniform("s_heightTexture", bgfx::UniformType::Sampler);
 
 		m_oldWidth  = 0;
 		m_oldHeight = 0;
@@ -130,9 +135,8 @@ public:
 
 		cameraCreate();
 
-		const float initialPos[3] = { s_terrainSize/2.0f, 100.0f, 0.0f };
-		cameraSetPosition(initialPos);
-		cameraSetVerticalAngle(-bx::kPi/4.0f);
+		cameraSetPosition({ s_terrainSize/2.0f, 100.0f, 0.0f });
+		cameraSetVerticalAngle(-bx::kPiQuarter);
 	}
 
 	virtual int shutdown() override
@@ -256,7 +260,7 @@ public:
 			}
 
 			mem = bgfx::makeRef(&m_terrain.m_vertices[0], sizeof(PosTexCoord0Vertex) * m_terrain.m_vertexCount);
-			bgfx::updateDynamicVertexBuffer(m_dvbh, 0, mem);
+			bgfx::update(m_dvbh, 0, mem);
 
 			if (!bgfx::isValid(m_dibh) )
 			{
@@ -264,7 +268,7 @@ public:
 			}
 
 			mem = bgfx::makeRef(&m_terrain.m_indices[0], sizeof(uint16_t) * m_terrain.m_indexCount);
-			bgfx::updateDynamicIndexBuffer(m_dibh, 0, mem);
+			bgfx::update(m_dibh, 0, mem);
 			break;
 
 		case 2: // Height Texture: Update a height texture that is sampled in the terrain vertex shader.
@@ -352,30 +356,25 @@ public:
 		float ray_world[4];
 		bx::vec4MulMtx(ray_world, ray_eye, invViewMtx);
 
-		float ray_dir[3];
-		bx::vec3Norm(ray_dir, ray_world);
-		ray_dir[0] *= -1.0;
-		ray_dir[1] *= -1.0;
-		ray_dir[2] *= -1.0;
+		const bx::Vec3 rayDir = bx::mul(bx::normalize(bx::load<bx::Vec3>(ray_world) ), -1.0f);
 
-		float pos[3];
-		cameraGetPosition(pos);
+		bx::Vec3 pos = cameraGetPosition();
 		for (int i = 0; i < 1000; ++i)
 		{
-			bx::vec3Add(pos, pos, ray_dir);
+			pos = bx::add(pos, rayDir);
 
-			if (pos[0] < 0
-			||  pos[0] >= s_terrainSize
-			||  pos[2] < 0
-			||  pos[2] >= s_terrainSize)
+			if (pos.x < 0
+			||  pos.x >= s_terrainSize
+			||  pos.z < 0
+			||  pos.z >= s_terrainSize)
 			{
 				continue;
 			}
 
-			uint32_t heightMapPos = ( (uint32_t)pos[2] * s_terrainSize) + (uint32_t)pos[0];
-			if ( pos[1] < m_terrain.m_heightMap[heightMapPos] )
+			uint32_t heightMapPos = ( (uint32_t)pos.z * s_terrainSize) + (uint32_t)pos.x;
+			if (pos.y < m_terrain.m_heightMap[heightMapPos])
 			{
-				paintTerrainHeight( (uint32_t)pos[0], (uint32_t)pos[2]);
+				paintTerrainHeight( (uint32_t)pos.x, (uint32_t)pos.z);
 				return;
 			}
 		}

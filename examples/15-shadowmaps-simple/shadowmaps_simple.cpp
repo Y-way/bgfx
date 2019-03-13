@@ -75,14 +75,19 @@ public:
 		m_debug = BGFX_DEBUG_NONE;
 		m_reset = BGFX_RESET_VSYNC;
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_width, m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_width;
+		init.resolution.height = m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		// Enable debug text.
 		bgfx::setDebug(m_debug);
 
 		// Uniforms.
-		s_shadowMap = bgfx::createUniform("s_shadowMap", bgfx::UniformType::Int1);
+		s_shadowMap = bgfx::createUniform("s_shadowMap", bgfx::UniformType::Sampler);
 		u_lightPos  = bgfx::createUniform("u_lightPos",  bgfx::UniformType::Vec4);
 		u_lightMtx  = bgfx::createUniform("u_lightMtx",  bgfx::UniformType::Mat4);
 
@@ -141,7 +146,7 @@ public:
 					, false
 					, 1
 					, bgfx::TextureFormat::D16
-					, BGFX_TEXTURE_RT | BGFX_TEXTURE_COMPARE_LEQUAL
+					, BGFX_TEXTURE_RT | BGFX_SAMPLER_COMPARE_LEQUAL
 					),
 			};
 			shadowMapTexture = fbtextures[0];
@@ -208,8 +213,8 @@ public:
 
 		// Set view and projection matrices.
 
-		float eye[3] = { 0.0f, 30.0f, -60.0f };
-		float at[3]  = { 0.0f,  5.0f,   0.0f };
+		const bx::Vec3 at  = { 0.0f,  5.0f,   0.0f };
+		const bx::Vec3 eye = { 0.0f, 30.0f, -60.0f };
 		bx::mtxLookAt(m_view, eye, at);
 
 		const float aspect = float(int32_t(m_width) ) / float(int32_t(m_height) );
@@ -314,9 +319,8 @@ public:
 			float lightView[16];
 			float lightProj[16];
 
-			float eye[3] = { -lightPos[0], -lightPos[1], -lightPos[2] };
-			float at[3]  = { 0.0f,  0.0f,   0.0f };
-
+			const bx::Vec3 at  = { 0.0f,  0.0f,   0.0f };
+			const bx::Vec3 eye = { -lightPos[0], -lightPos[1], -lightPos[2] };
 			bx::mtxLookAt(lightView, eye, at);
 
 			const bgfx::Caps* caps = bgfx::getCaps();

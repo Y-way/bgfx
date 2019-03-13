@@ -166,8 +166,13 @@ public:
 		m_debug  = BGFX_DEBUG_NONE;
 		m_reset  = BGFX_RESET_VSYNC;
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_width, m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_width;
+		init.resolution.height = m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		// Enable debug text.
 		bgfx::setDebug(m_debug);
@@ -205,8 +210,8 @@ public:
 		m_ibh = bgfx::createIndexBuffer(bgfx::makeRef(s_cubeIndices, sizeof(s_cubeIndices) ) );
 
 		// Create texture sampler uniforms.
-		s_texColor0 = bgfx::createUniform("s_texColor0", bgfx::UniformType::Int1);
-		s_texColor1 = bgfx::createUniform("s_texColor1", bgfx::UniformType::Int1);
+		s_texColor0 = bgfx::createUniform("s_texColor0", bgfx::UniformType::Sampler);
+		s_texColor1 = bgfx::createUniform("s_texColor1", bgfx::UniformType::Sampler);
 		u_color     = bgfx::createUniform("u_color",     bgfx::UniformType::Vec4);
 
 		m_blend          = loadProgram("vs_oit",      "fs_oit"                  );
@@ -341,13 +346,13 @@ public:
 				const double freq = double(bx::getHPFrequency() );
 				float time = (float)( (now-m_timeOffset)/freq);
 
-				// Reference:
-				// Weighted, Blended Order-Independent Transparency
-				// http://jcgt.org/published/0002/02/09/
-				// http://casual-effects.blogspot.com/2014/03/weighted-blended-order-independent.html
-
-				float at[3] = { 0.0f, 0.0f, 0.0f };
-				float eye[3] = { 0.0f, 0.0f, -7.0f };
+				// Reference(s):
+				// - Weighted, Blended Order-Independent Transparency
+				//   https://web.archive.org/save/http://jcgt.org/published/0002/02/09/
+				//   https://web.archive.org/web/20181126040455/http://casual-effects.blogspot.com/2014/03/weighted-blended-order-independent.html
+				//
+				const bx::Vec3 at  = { 0.0f, 0.0f,  0.0f };
+				const bx::Vec3 eye = { 0.0f, 0.0f, -7.0f };
 
 				float view[16];
 				float proj[16];

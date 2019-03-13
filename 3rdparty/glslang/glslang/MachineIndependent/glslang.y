@@ -2,6 +2,7 @@
 // Copyright (C) 2002-2005  3Dlabs Inc. Ltd.
 // Copyright (C) 2012-2013 LunarG, Inc.
 // Copyright (C) 2017 ARM Limited.
+// Copyright (C) 2015-2018 Google, Inc.
 //
 // All rights reserved.
 //
@@ -140,13 +141,13 @@ extern int yylex(YYSTYPE*, TParseContext&);
 %token <lex> U8VEC2  U8VEC3  U8VEC4
 %token <lex> VEC2 VEC3 VEC4
 %token <lex> MAT2 MAT3 MAT4 CENTROID IN OUT INOUT
-%token <lex> UNIFORM PATCH SAMPLE BUFFER SHARED
-%token <lex> COHERENT VOLATILE RESTRICT READONLY WRITEONLY
+%token <lex> UNIFORM PATCH SAMPLE BUFFER SHARED NONUNIFORM PAYLOADNV PAYLOADINNV HITATTRNV CALLDATANV CALLDATAINNV
+%token <lex> COHERENT VOLATILE RESTRICT READONLY WRITEONLY DEVICECOHERENT QUEUEFAMILYCOHERENT WORKGROUPCOHERENT SUBGROUPCOHERENT NONPRIVATE
 %token <lex> DVEC2 DVEC3 DVEC4 DMAT2 DMAT3 DMAT4
 %token <lex> F16VEC2 F16VEC3 F16VEC4 F16MAT2 F16MAT3 F16MAT4
 %token <lex> F32VEC2 F32VEC3 F32VEC4 F32MAT2 F32MAT3 F32MAT4
 %token <lex> F64VEC2 F64VEC3 F64VEC4 F64MAT2 F64MAT3 F64MAT4
-%token <lex> NOPERSPECTIVE FLAT SMOOTH LAYOUT __EXPLICITINTERPAMD
+%token <lex> NOPERSPECTIVE FLAT SMOOTH LAYOUT EXPLICITINTERPAMD PERVERTEXNV PERPRIMITIVENV PERVIEWNV PERTASKNV
 
 %token <lex> MAT2X2 MAT2X3 MAT2X4
 %token <lex> MAT3X2 MAT3X3 MAT3X4
@@ -164,6 +165,7 @@ extern int yylex(YYSTYPE*, TParseContext&);
 %token <lex> F64MAT3X2 F64MAT3X3 F64MAT3X4
 %token <lex> F64MAT4X2 F64MAT4X3 F64MAT4X4
 %token <lex> ATOMIC_UINT
+%token <lex> ACCSTRUCTNV
 
 // combined image/sampler
 %token <lex> SAMPLER1D SAMPLER2D SAMPLER3D SAMPLERCUBE SAMPLER1DSHADOW SAMPLER2DSHADOW
@@ -268,6 +270,7 @@ extern int yylex(YYSTYPE*, TParseContext&);
 %type <interm> array_specifier
 %type <interm.type> precise_qualifier invariant_qualifier interpolation_qualifier storage_qualifier precision_qualifier
 %type <interm.type> layout_qualifier layout_qualifier_id_list layout_qualifier_id
+%type <interm.type> non_uniform_qualifier
 
 %type <interm.type> type_qualifier fully_specified_type type_specifier
 %type <interm.type> single_type_qualifier
@@ -472,6 +475,11 @@ function_identifier
             TString empty("");
             $$.function = new TFunction(&empty, TType(EbtVoid), EOpNull);
         }
+    }
+    | non_uniform_qualifier {
+        // Constructor
+        $$.intermNode = 0;
+        $$.function = parseContext.handleConstructorCall($1.loc, $1);
     }
     ;
 
@@ -693,6 +701,7 @@ assignment_expression
     | unary_expression assignment_operator assignment_expression {
         parseContext.arrayObjectCheck($2.loc, $1->getType(), "array assignment");
         parseContext.opaqueCheck($2.loc, $1->getType(), "=");
+        parseContext.storage16BitAssignmentCheck($2.loc, $1->getType(), "=");
         parseContext.specializationCheck($2.loc, $1->getType(), "=");
         parseContext.lValueErrorCheck($2.loc, "assign", $1);
         parseContext.rValueErrorCheck($2.loc, "assign", $3);
@@ -934,13 +943,15 @@ parameter_declarator
             parseContext.profileRequires($1.loc, EEsProfile, 300, 0, "arrayed type");
             parseContext.arraySizeRequiredCheck($1.loc, *$1.arraySizes);
         }
-        parseContext.arrayDimCheck($2.loc, $1.arraySizes, $3.arraySizes);
+        TType* type = new TType($1);
+        type->transferArraySizes($3.arraySizes);
+        type->copyArrayInnerSizes($1.arraySizes);
 
+        parseContext.arrayOfArrayVersionCheck($2.loc, type->getArraySizes());
         parseContext.arraySizeRequiredCheck($3.loc, *$3.arraySizes);
         parseContext.reservedErrorCheck($2.loc, *$2.string);
 
-        TParameter param = { $2.string, new TType($1)};
-        parseContext.arrayDimMerge(*param.type, $3.arraySizes);
+        TParameter param = { $2.string, type };
 
         $$.loc = $2.loc;
         $$.param = param;
@@ -966,7 +977,7 @@ parameter_declaration
         $$ = $1;
 
         parseContext.parameterTypeCheck($1.loc, EvqIn, *$1.param.type);
-        parseContext.paramCheckFix($1.loc, EvqTemporary, *$$.param.type);
+        parseContext.paramCheckFixStorage($1.loc, EvqTemporary, *$$.param.type);
         parseContext.precisionQualifierCheck($$.loc, $$.param.type->getBasicType(), $$.param.type->getQualifier());
     }
     //
@@ -986,7 +997,7 @@ parameter_declaration
         $$ = $1;
 
         parseContext.parameterTypeCheck($1.loc, EvqIn, *$1.param.type);
-        parseContext.paramCheckFix($1.loc, EvqTemporary, *$$.param.type);
+        parseContext.paramCheckFixStorage($1.loc, EvqTemporary, *$$.param.type);
         parseContext.precisionQualifierCheck($$.loc, $$.param.type->getBasicType(), $$.param.type->getQualifier());
     }
     ;
@@ -1075,7 +1086,7 @@ fully_specified_type
         }
 
         if ($2.arraySizes && parseContext.arrayQualifierError($2.loc, $1.qualifier))
-            $2.arraySizes = 0;
+            $2.arraySizes = nullptr;
 
         parseContext.checkNoShaderLayouts($2.loc, $1.shaderQualifiers);
         $2.shaderQualifiers.merge($1.shaderQualifiers);
@@ -1126,13 +1137,53 @@ interpolation_qualifier
         $$.init($1.loc);
         $$.qualifier.nopersp = true;
     }
-    | __EXPLICITINTERPAMD {
+    | EXPLICITINTERPAMD {
 #ifdef AMD_EXTENSIONS
         parseContext.globalCheck($1.loc, "__explicitInterpAMD");
         parseContext.profileRequires($1.loc, ECoreProfile, 450, E_GL_AMD_shader_explicit_vertex_parameter, "explicit interpolation");
         parseContext.profileRequires($1.loc, ECompatibilityProfile, 450, E_GL_AMD_shader_explicit_vertex_parameter, "explicit interpolation");
         $$.init($1.loc);
         $$.qualifier.explicitInterp = true;
+#endif
+    }
+    | PERVERTEXNV {
+#ifdef NV_EXTENSIONS
+        parseContext.globalCheck($1.loc, "pervertexNV");
+        parseContext.profileRequires($1.loc, ECoreProfile, 0, E_GL_NV_fragment_shader_barycentric, "fragment shader barycentric");
+        parseContext.profileRequires($1.loc, ECompatibilityProfile, 0, E_GL_NV_fragment_shader_barycentric, "fragment shader barycentric");
+        parseContext.profileRequires($1.loc, EEsProfile, 0, E_GL_NV_fragment_shader_barycentric, "fragment shader barycentric");
+        $$.init($1.loc);
+        $$.qualifier.pervertexNV = true;
+#endif
+    }
+    | PERPRIMITIVENV {
+#ifdef NV_EXTENSIONS
+        // No need for profile version or extension check. Shader stage already checks both.
+        parseContext.globalCheck($1.loc, "perprimitiveNV");
+        parseContext.requireStage($1.loc, (EShLanguageMask)(EShLangFragmentMask | EShLangMeshNVMask), "perprimitiveNV");
+        // Fragment shader stage doesn't check for extension. So we explicitly add below extension check.
+        if (parseContext.language == EShLangFragment)
+            parseContext.requireExtensions($1.loc, 1, &E_GL_NV_mesh_shader, "perprimitiveNV");
+        $$.init($1.loc);
+        $$.qualifier.perPrimitiveNV = true;
+#endif
+    }
+    | PERVIEWNV {
+#ifdef NV_EXTENSIONS
+        // No need for profile version or extension check. Shader stage already checks both.
+        parseContext.globalCheck($1.loc, "perviewNV");
+        parseContext.requireStage($1.loc, EShLangMeshNV, "perviewNV");
+        $$.init($1.loc);
+        $$.qualifier.perViewNV = true;
+#endif
+    }
+    | PERTASKNV {
+#ifdef NV_EXTENSIONS
+        // No need for profile version or extension check. Shader stage already checks both.
+        parseContext.globalCheck($1.loc, "taskNV");
+        parseContext.requireStage($1.loc, (EShLanguageMask)(EShLangTaskNVMask | EShLangMeshNVMask), "taskNV");
+        $$.init($1.loc);
+        $$.qualifier.perTaskNV = true;
 #endif
     }
     ;
@@ -1215,6 +1266,9 @@ single_type_qualifier
         // allow inheritance of storage qualifier from block declaration
         $$ = $1;
     }
+    | non_uniform_qualifier {
+        $$ = $1;
+    }
     ;
 
 storage_qualifier
@@ -1293,17 +1347,95 @@ storage_qualifier
         $$.init($1.loc);
         $$.qualifier.storage = EvqBuffer;
     }
+    | HITATTRNV {
+#ifdef NV_EXTENSIONS
+        parseContext.globalCheck($1.loc, "hitAttributeNV");
+        parseContext.requireStage($1.loc, (EShLanguageMask)(EShLangIntersectNVMask | EShLangClosestHitNVMask
+            | EShLangAnyHitNVMask), "hitAttributeNV");
+        parseContext.profileRequires($1.loc, ECoreProfile, 460, E_GL_NV_ray_tracing, "hitAttributeNV");
+        $$.init($1.loc);
+        $$.qualifier.storage = EvqHitAttrNV;
+#endif
+    }
+    | PAYLOADNV {
+#ifdef NV_EXTENSIONS
+        parseContext.globalCheck($1.loc, "rayPayloadNV");
+        parseContext.requireStage($1.loc, (EShLanguageMask)(EShLangRayGenNVMask | EShLangClosestHitNVMask |
+            EShLangAnyHitNVMask | EShLangMissNVMask), "rayPayloadNV");
+        parseContext.profileRequires($1.loc, ECoreProfile, 460, E_GL_NV_ray_tracing, "rayPayloadNV");
+        $$.init($1.loc);
+        $$.qualifier.storage = EvqPayloadNV;
+#endif
+    }
+    | PAYLOADINNV {
+#ifdef NV_EXTENSIONS
+        parseContext.globalCheck($1.loc, "rayPayloadInNV");
+        parseContext.requireStage($1.loc, (EShLanguageMask)(EShLangClosestHitNVMask |
+            EShLangAnyHitNVMask | EShLangMissNVMask), "rayPayloadInNV");
+        parseContext.profileRequires($1.loc, ECoreProfile, 460, E_GL_NV_ray_tracing, "rayPayloadInNV");
+        $$.init($1.loc);
+        $$.qualifier.storage = EvqPayloadInNV;
+#endif
+    }
+    | CALLDATANV {
+#ifdef NV_EXTENSIONS
+        parseContext.globalCheck($1.loc, "callableDataNV");
+        parseContext.requireStage($1.loc, (EShLanguageMask)(EShLangRayGenNVMask |
+            EShLangClosestHitNVMask | EShLangMissNVMask | EShLangCallableNVMask), "callableDataNV");
+        parseContext.profileRequires($1.loc, ECoreProfile, 460, E_GL_NV_ray_tracing, "callableDataNV");
+        $$.init($1.loc);
+        $$.qualifier.storage = EvqCallableDataNV;
+#endif
+    }
+    | CALLDATAINNV {
+#ifdef NV_EXTENSIONS
+        parseContext.globalCheck($1.loc, "callableDataInNV");
+        parseContext.requireStage($1.loc, (EShLanguageMask)(EShLangCallableNVMask), "callableDataInNV");
+        parseContext.profileRequires($1.loc, ECoreProfile, 460, E_GL_NV_ray_tracing, "callableDataInNV");
+        $$.init($1.loc);
+        $$.qualifier.storage = EvqCallableDataInNV;
+#endif
+    }
     | SHARED {
         parseContext.globalCheck($1.loc, "shared");
         parseContext.profileRequires($1.loc, ECoreProfile | ECompatibilityProfile, 430, E_GL_ARB_compute_shader, "shared");
         parseContext.profileRequires($1.loc, EEsProfile, 310, 0, "shared");
+#ifdef NV_EXTENSIONS
+        parseContext.requireStage($1.loc, (EShLanguageMask)(EShLangComputeMask | EShLangMeshNVMask | EShLangTaskNVMask), "shared");
+#else
         parseContext.requireStage($1.loc, EShLangCompute, "shared");
+#endif
         $$.init($1.loc);
         $$.qualifier.storage = EvqShared;
     }
     | COHERENT {
         $$.init($1.loc);
         $$.qualifier.coherent = true;
+    }
+    | DEVICECOHERENT {
+        $$.init($1.loc);
+        parseContext.requireExtensions($1.loc, 1, &E_GL_KHR_memory_scope_semantics, "devicecoherent");
+        $$.qualifier.devicecoherent = true;
+    }
+    | QUEUEFAMILYCOHERENT {
+        $$.init($1.loc);
+        parseContext.requireExtensions($1.loc, 1, &E_GL_KHR_memory_scope_semantics, "queuefamilycoherent");
+        $$.qualifier.queuefamilycoherent = true;
+    }
+    | WORKGROUPCOHERENT {
+        $$.init($1.loc);
+        parseContext.requireExtensions($1.loc, 1, &E_GL_KHR_memory_scope_semantics, "workgroupcoherent");
+        $$.qualifier.workgroupcoherent = true;
+    }
+    | SUBGROUPCOHERENT {
+        $$.init($1.loc);
+        parseContext.requireExtensions($1.loc, 1, &E_GL_KHR_memory_scope_semantics, "subgroupcoherent");
+        $$.qualifier.subgroupcoherent = true;
+    }
+    | NONPRIVATE {
+        $$.init($1.loc);
+        parseContext.requireExtensions($1.loc, 1, &E_GL_KHR_memory_scope_semantics, "nonprivate");
+        $$.qualifier.nonprivate = true;
     }
     | VOLATILE {
         $$.init($1.loc);
@@ -1335,6 +1467,13 @@ storage_qualifier
     }
     ;
 
+non_uniform_qualifier
+    : NONUNIFORM {
+        $$.init($1.loc);
+        $$.qualifier.nonUniform = true;
+    }
+    ;
+
 type_name_list
     : IDENTIFIER {
         // TODO
@@ -1352,7 +1491,7 @@ type_specifier
         $$.qualifier.precision = parseContext.getDefaultPrecision($$);
     }
     | type_specifier_nonarray array_specifier {
-        parseContext.arrayDimCheck($2.loc, $2.arraySizes, 0);
+        parseContext.arrayOfArrayVersionCheck($2.loc, $2.arraySizes);
         $$ = $1;
         $$.qualifier.precision = parseContext.getDefaultPrecision($$);
         $$.arraySizes = $2.arraySizes;
@@ -1401,7 +1540,7 @@ type_specifier_nonarray
         $$.basicType = EbtDouble;
     }
     | FLOAT16_T {
-        parseContext.float16Check($1.loc, "float16_t", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.float16ScalarVectorCheck($1.loc, "float16_t", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtFloat16;
     }
@@ -1425,22 +1564,22 @@ type_specifier_nonarray
         $$.basicType = EbtUint;
     }
     | INT8_T {
-        parseContext.explicitInt8Check($1.loc, "8-bit signed integer", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.int8ScalarVectorCheck($1.loc, "8-bit signed integer", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtInt8;
     }
     | UINT8_T {
-        parseContext.explicitInt8Check($1.loc, "8-bit unsigned integer", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.int8ScalarVectorCheck($1.loc, "8-bit unsigned integer", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtUint8;
     }
     | INT16_T {
-        parseContext.explicitInt16Check($1.loc, "16-bit signed integer", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.int16ScalarVectorCheck($1.loc, "16-bit signed integer", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtInt16;
     }
     | UINT16_T {
-        parseContext.explicitInt16Check($1.loc, "16-bit unsigned integer", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.int16ScalarVectorCheck($1.loc, "16-bit unsigned integer", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtUint16;
     }
@@ -1502,58 +1641,58 @@ type_specifier_nonarray
         $$.setVector(4);
     }
     | F16VEC2 {
-        parseContext.float16Check($1.loc, "half float vector", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.float16ScalarVectorCheck($1.loc, "half float vector", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtFloat16;
         $$.setVector(2);
     }
     | F16VEC3 {
-        parseContext.float16Check($1.loc, "half float vector", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.float16ScalarVectorCheck($1.loc, "half float vector", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtFloat16;
         $$.setVector(3);
     }
     | F16VEC4 {
-        parseContext.float16Check($1.loc, "half float vector", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.float16ScalarVectorCheck($1.loc, "half float vector", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtFloat16;
         $$.setVector(4);
     }
     | F32VEC2 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t vector", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setVector(2);
+        parseContext.explicitFloat32Check($1.loc, "float32_t vector", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setVector(2);
     }
     | F32VEC3 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t vector", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setVector(3);
+        parseContext.explicitFloat32Check($1.loc, "float32_t vector", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setVector(3);
     }
     | F32VEC4 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t vector", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setVector(4);
+        parseContext.explicitFloat32Check($1.loc, "float32_t vector", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setVector(4);
     }
     | F64VEC2 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t vector", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setVector(2);
+        parseContext.explicitFloat64Check($1.loc, "float64_t vector", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setVector(2);
     }
     | F64VEC3 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t vector", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setVector(3);
+        parseContext.explicitFloat64Check($1.loc, "float64_t vector", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setVector(3);
     }
     | F64VEC4 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t vector", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setVector(4);
+        parseContext.explicitFloat64Check($1.loc, "float64_t vector", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setVector(4);
     }
     | BVEC2 {
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
@@ -1586,40 +1725,40 @@ type_specifier_nonarray
         $$.setVector(4);
     }
     | I8VEC2 {
- 	   parseContext.explicitInt8Check($1.loc, "8-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
- 	   $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
- 	   $$.basicType = EbtInt8;
- 	   $$.setVector(2);
+        parseContext.int8ScalarVectorCheck($1.loc, "8-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtInt8;
+        $$.setVector(2);
     }
     | I8VEC3 {
- 	   parseContext.explicitInt8Check($1.loc, "8-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
- 	   $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
- 	   $$.basicType = EbtInt8;
- 	   $$.setVector(3);
+        parseContext.int8ScalarVectorCheck($1.loc, "8-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtInt8;
+        $$.setVector(3);
     }
     | I8VEC4 {
- 	   parseContext.explicitInt8Check($1.loc, "8-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
- 	   $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
- 	   $$.basicType = EbtInt8;
- 	   $$.setVector(4);
+        parseContext.int8ScalarVectorCheck($1.loc, "8-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtInt8;
+        $$.setVector(4);
     }
     | I16VEC2 {
- 	   parseContext.explicitInt16Check($1.loc, "16-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
- 	   $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
- 	   $$.basicType = EbtInt16;
- 	   $$.setVector(2);
+        parseContext.int16ScalarVectorCheck($1.loc, "16-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtInt16;
+        $$.setVector(2);
     }
     | I16VEC3 {
- 	   parseContext.explicitInt16Check($1.loc, "16-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
- 	   $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
- 	   $$.basicType = EbtInt16;
- 	   $$.setVector(3);
+        parseContext.int16ScalarVectorCheck($1.loc, "16-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtInt16;
+        $$.setVector(3);
     }
     | I16VEC4 {
- 	   parseContext.explicitInt16Check($1.loc, "16-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
- 	   $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
- 	   $$.basicType = EbtInt16;
- 	   $$.setVector(4);
+        parseContext.int16ScalarVectorCheck($1.loc, "16-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtInt16;
+        $$.setVector(4);
     }
     | I32VEC2 {
         parseContext.explicitInt32Check($1.loc, "32-bit signed integer vector", parseContext.symbolTable.atBuiltInLevel());
@@ -1676,37 +1815,37 @@ type_specifier_nonarray
         $$.setVector(4);
     }
     | U8VEC2 {
-        parseContext.explicitInt8Check($1.loc, "8-bit unsigned integer vector", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.int8ScalarVectorCheck($1.loc, "8-bit unsigned integer vector", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtUint8;
         $$.setVector(2);
     }
     | U8VEC3 {
-        parseContext.explicitInt8Check($1.loc, "8-bit unsigned integer vector", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.int8ScalarVectorCheck($1.loc, "8-bit unsigned integer vector", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-        $$.basicType = EbtInt8;
+        $$.basicType = EbtUint8;
         $$.setVector(3);
     }
     | U8VEC4 {
-        parseContext.explicitInt8Check($1.loc, "8-bit unsigned integer vector", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.int8ScalarVectorCheck($1.loc, "8-bit unsigned integer vector", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtUint8;
         $$.setVector(4);
     }
     | U16VEC2 {
-        parseContext.explicitInt16Check($1.loc, "16-bit unsigned integer vector", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.int16ScalarVectorCheck($1.loc, "16-bit unsigned integer vector", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtUint16;
         $$.setVector(2);
     }
     | U16VEC3 {
-        parseContext.explicitInt16Check($1.loc, "16-bit unsigned integer vector", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.int16ScalarVectorCheck($1.loc, "16-bit unsigned integer vector", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtUint16;
         $$.setVector(3);
     }
     | U16VEC4 {
-        parseContext.explicitInt16Check($1.loc, "16-bit unsigned integer vector", parseContext.symbolTable.atBuiltInLevel());
+        parseContext.int16ScalarVectorCheck($1.loc, "16-bit unsigned integer vector", parseContext.symbolTable.atBuiltInLevel());
         $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
         $$.basicType = EbtUint16;
         $$.setVector(4);
@@ -1952,148 +2091,154 @@ type_specifier_nonarray
         $$.setMatrix(4, 4);
     }
     | F32MAT2 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setMatrix(2, 2);
+        parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setMatrix(2, 2);
     }
     | F32MAT3 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setMatrix(3, 3);
+        parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setMatrix(3, 3);
     }
     | F32MAT4 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setMatrix(4, 4);
+        parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setMatrix(4, 4);
     }
     | F32MAT2X2 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setMatrix(2, 2);
+        parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setMatrix(2, 2);
     }
     | F32MAT2X3 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setMatrix(2, 3);
+        parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setMatrix(2, 3);
     }
     | F32MAT2X4 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setMatrix(2, 4);
+        parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setMatrix(2, 4);
     }
     | F32MAT3X2 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setMatrix(3, 2);
+        parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setMatrix(3, 2);
     }
     | F32MAT3X3 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setMatrix(3, 3);
+        parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setMatrix(3, 3);
     }
     | F32MAT3X4 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setMatrix(3, 4);
+        parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setMatrix(3, 4);
     }
     | F32MAT4X2 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setMatrix(4, 2);
+        parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setMatrix(4, 2);
     }
     | F32MAT4X3 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setMatrix(4, 3);
+        parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setMatrix(4, 3);
     }
     | F32MAT4X4 {
-    	parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtFloat;
-    	$$.setMatrix(4, 4);
+        parseContext.explicitFloat32Check($1.loc, "float32_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtFloat;
+        $$.setMatrix(4, 4);
     }
     | F64MAT2 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setMatrix(2, 2);
+        parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setMatrix(2, 2);
     }
     | F64MAT3 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setMatrix(3, 3);
+        parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setMatrix(3, 3);
     }
     | F64MAT4 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setMatrix(4, 4);
+        parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setMatrix(4, 4);
     }
     | F64MAT2X2 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setMatrix(2, 2);
+        parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setMatrix(2, 2);
     }
     | F64MAT2X3 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setMatrix(2, 3);
+        parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setMatrix(2, 3);
     }
     | F64MAT2X4 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setMatrix(2, 4);
+        parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setMatrix(2, 4);
     }
     | F64MAT3X2 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setMatrix(3, 2);
+        parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setMatrix(3, 2);
     }
     | F64MAT3X3 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setMatrix(3, 3);
+        parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setMatrix(3, 3);
     }
     | F64MAT3X4 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setMatrix(3, 4);
+        parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setMatrix(3, 4);
     }
     | F64MAT4X2 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setMatrix(4, 2);
+        parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setMatrix(4, 2);
     }
     | F64MAT4X3 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setMatrix(4, 3);
+        parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setMatrix(4, 3);
     }
     | F64MAT4X4 {
-    	parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
-    	$$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
-    	$$.basicType = EbtDouble;
-    	$$.setMatrix(4, 4);
+        parseContext.explicitFloat64Check($1.loc, "float64_t matrix", parseContext.symbolTable.atBuiltInLevel());
+        $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+        $$.basicType = EbtDouble;
+        $$.setMatrix(4, 4);
+    }
+    | ACCSTRUCTNV {
+#ifdef NV_EXTENSIONS
+       $$.init($1.loc, parseContext.symbolTable.atGlobalLevel());
+       $$.basicType = EbtAccStructNV;
+#endif
     }
     | ATOMIC_UINT {
         parseContext.vulkanRemoved($1.loc, "atomic counter types");
@@ -3110,12 +3255,15 @@ struct_declaration
         parseContext.precisionQualifierCheck($1.loc, $1.basicType, $1.qualifier);
 
         for (unsigned int i = 0; i < $$->size(); ++i) {
-            parseContext.arrayDimCheck($1.loc, (*$$)[i].type, $1.arraySizes);
-            (*$$)[i].type->mergeType($1);
+            TType type($1);
+            type.setFieldName((*$$)[i].type->getFieldName());
+            type.transferArraySizes((*$$)[i].type->getArraySizes());
+            type.copyArrayInnerSizes($1.arraySizes);
+            parseContext.arrayOfArrayVersionCheck((*$$)[i].loc, type.getArraySizes());
+            (*$$)[i].type->shallowCopy(type);
         }
     }
     | type_qualifier type_specifier struct_declarator_list SEMICOLON {
-        parseContext.globalQualifierFixCheck($1.loc, $1.qualifier);
         if ($2.arraySizes) {
             parseContext.profileRequires($2.loc, ENoProfile, 120, E_GL_3DL_array_objects, "arrayed type");
             parseContext.profileRequires($2.loc, EEsProfile, 300, 0, "arrayed type");
@@ -3125,14 +3273,18 @@ struct_declaration
 
         $$ = $3;
 
-        parseContext.checkNoShaderLayouts($1.loc, $1.shaderQualifiers);
+        parseContext.memberQualifierCheck($1);
         parseContext.voidErrorCheck($2.loc, (*$3)[0].type->getFieldName(), $2.basicType);
         parseContext.mergeQualifiers($2.loc, $2.qualifier, $1.qualifier, true);
         parseContext.precisionQualifierCheck($2.loc, $2.basicType, $2.qualifier);
 
         for (unsigned int i = 0; i < $$->size(); ++i) {
-            parseContext.arrayDimCheck($1.loc, (*$$)[i].type, $2.arraySizes);
-            (*$$)[i].type->mergeType($2);
+            TType type($2);
+            type.setFieldName((*$$)[i].type->getFieldName());
+            type.transferArraySizes((*$$)[i].type->getArraySizes());
+            type.copyArrayInnerSizes($2.arraySizes);
+            parseContext.arrayOfArrayVersionCheck((*$$)[i].loc, type.getArraySizes());
+            (*$$)[i].type->shallowCopy(type);
         }
     }
     ;
@@ -3154,12 +3306,12 @@ struct_declarator
         $$.type->setFieldName(*$1.string);
     }
     | IDENTIFIER array_specifier {
-        parseContext.arrayDimCheck($1.loc, $2.arraySizes, 0);
+        parseContext.arrayOfArrayVersionCheck($1.loc, $2.arraySizes);
 
         $$.type = new TType(EbtVoid);
         $$.loc = $1.loc;
         $$.type->setFieldName(*$1.string);
-        $$.type->newArraySizes(*$2.arraySizes);
+        $$.type->transferArraySizes($2.arraySizes);
     }
     ;
 

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2016 Google, Inc.
+// Copyright (C) 2016-2018 Google, Inc.
 // Copyright (C) 2016 LunarG, Inc.
 //
 // All rights reserved.
@@ -126,8 +126,6 @@ bool HlslGrammar::acceptIdentifier(HlslToken& idToken)
 //
 bool HlslGrammar::acceptCompilationUnit()
 {
-    TIntermNode* unitNode = nullptr;
-
     if (! acceptDeclarationList(unitNode))
         return false;
 
@@ -324,7 +322,7 @@ bool HlslGrammar::acceptSamplerDeclarationDX9(TType& /*type*/)
 // node for all the initializers. Each function created is a top-level node to grow
 // into the passed-in nodeList.
 //
-// If 'nodeList' is passed in as non-null, it must an aggregate to extend for
+// If 'nodeList' is passed in as non-null, it must be an aggregate to extend for
 // each top-level node the declaration creates. Otherwise, if only one top-level
 // node in generated here, that is want is returned in nodeList.
 //
@@ -436,28 +434,20 @@ bool HlslGrammar::acceptDeclaration(TIntermNode*& nodeList)
             if (declaredType.getQualifier().storage == EvqTemporary && parseContext.symbolTable.atGlobalLevel())
                 declaredType.getQualifier().storage = EvqUniform;
 
+            // recognize array_specifier
+            TArraySizes* arraySizes = nullptr;
+            acceptArraySpecifier(arraySizes);
+
             // We can handle multiple variables per type declaration, so
             // the number of types can expand when arrayness is different.
             TType variableType;
             variableType.shallowCopy(declaredType);
 
-            // recognize array_specifier
-            TArraySizes* arraySizes = nullptr;
-            acceptArraySpecifier(arraySizes);
-
-            // Fix arrayness in the variableType
-            if (declaredType.isImplicitlySizedArray()) {
-                // Because "int[] a = int[2](...), b = int[3](...)" makes two arrays a and b
-                // of different sizes, for this case sharing the shallow copy of arrayness
-                // with the parseType oversubscribes it, so get a deep copy of the arrayness.
-                variableType.newArraySizes(declaredType.getArraySizes());
-            }
-            if (arraySizes || variableType.isArray()) {
-                // In the most general case, arrayness is potentially coming both from the
-                // declared type and from the variable: "int[] a[];" or just one or the other.
-                // Merge it all to the variableType, so all arrayness is part of the variableType.
-                parseContext.arrayDimMerge(variableType, arraySizes);
-            }
+            // In the most general case, arrayness is potentially coming both from the
+            // declared type and from the variable: "int[] a[];" or just one or the other.
+            // Merge it all to the variableType, so all arrayness is part of the variableType.
+            variableType.transferArraySizes(arraySizes);
+            variableType.copyArrayInnerSizes(declaredType.getArraySizes());
 
             // samplers accept immediate sampler state
             if (variableType.getBasicType() == EbtSampler) {
@@ -487,8 +477,7 @@ bool HlslGrammar::acceptDeclaration(TIntermNode*& nodeList)
                 else if (variableType.getBasicType() == EbtBlock) {
                     if (expressionNode)
                         parseContext.error(idToken.loc, "buffer aliasing not yet supported", "block initializer", "");
-                    parseContext.declareBlock(idToken.loc, variableType, fullName,
-                                              variableType.isArray() ? &variableType.getArraySizes() : nullptr);
+                    parseContext.declareBlock(idToken.loc, variableType, fullName);
                     parseContext.declareStructBufferCounter(idToken.loc, variableType, *fullName);
                 } else {
                     if (variableType.getQualifier().storage == EvqUniform && ! variableType.containsOpaque()) {
@@ -498,7 +487,7 @@ bool HlslGrammar::acceptDeclaration(TIntermNode*& nodeList)
                         // Declare the variable and add any initializer code to the AST.
                         // The top-level node is always made into an aggregate, as that's
                         // historically how the AST has been.
-                        initializers = intermediate.growAggregate(initializers,
+                        initializers = intermediate.growAggregate(initializers, 
                             parseContext.declareVariable(idToken.loc, *fullName, variableType, expressionNode),
                             idToken.loc);
                     }
@@ -515,11 +504,16 @@ bool HlslGrammar::acceptDeclaration(TIntermNode*& nodeList)
     if (initializers != nullptr)
         initializers->setOperator(EOpSequence);
 
-    // Add the initializers' aggregate to the nodeList we were handed.
-    if (nodeList)
-        nodeList = intermediate.growAggregate(nodeList, initializers);
-    else
-        nodeList = initializers;
+    // if we have a locally scoped static, it needs a globally scoped initializer
+    if (declaredType.getQualifier().storage == EvqGlobal && !parseContext.symbolTable.atGlobalLevel()) {
+        unitNode = intermediate.growAggregate(unitNode, initializers, idToken.loc);
+    } else {
+        // Add the initializers' aggregate to the nodeList we were handed.
+        if (nodeList)
+            nodeList = intermediate.growAggregate(nodeList, initializers);
+        else
+            nodeList = initializers;
+    }
 
     // SEMICOLON
     if (! acceptTokenClass(EHTokSemicolon)) {
@@ -527,13 +521,11 @@ bool HlslGrammar::acceptDeclaration(TIntermNode*& nodeList)
         // was actually an assignment such as "float = 4", where "float" is an identifier.
         // We put the token back to let further parsing happen for cases where that may
         // happen.  This errors on the side of caution, and mostly triggers the error.
-        if (peek() == EHTokAssign || peek() == EHTokLeftBracket || peek() == EHTokDot || peek() == EHTokComma) {
+        if (peek() == EHTokAssign || peek() == EHTokLeftBracket || peek() == EHTokDot || peek() == EHTokComma)
             recedeToken();
-            return false;
-        } else {
+        else
             expected(";");
-            return false;
-        }
+        return false;
     }
 
     return true;
@@ -660,7 +652,7 @@ bool HlslGrammar::acceptQualifier(TQualifier& qualifier)
     do {
         switch (peek()) {
         case EHTokStatic:
-            qualifier.storage = parseContext.symbolTable.atGlobalLevel() ? EvqGlobal : EvqTemporary;
+            qualifier.storage = EvqGlobal;
             break;
         case EHTokExtern:
             // TODO: no meaning in glslang?
@@ -1036,7 +1028,7 @@ bool HlslGrammar::acceptTessellationPatchTemplateType(TType& type)
 
     TArraySizes* arraySizes = new TArraySizes;
     arraySizes->addInnerSize(size->getAsConstantUnion()->getConstArray()[0].getIConst());
-    type.newArraySizes(*arraySizes);
+    type.transferArraySizes(arraySizes);
     type.getQualifier().builtIn = patchType;
 
     if (! acceptTokenClass(EHTokRightAngle)) {
@@ -1167,6 +1159,49 @@ bool HlslGrammar::acceptSubpassInputType(TType& type)
         return false;
 
     type.shallowCopy(TType(sampler, EvqUniform));
+
+    return true;
+}
+
+// sampler_type for DX9 compatibility 
+//      : SAMPLER
+//      | SAMPLER1D
+//      | SAMPLER2D
+//      | SAMPLER3D
+//      | SAMPLERCUBE
+bool HlslGrammar::acceptSamplerTypeDX9(TType &type)
+{
+    // read sampler type
+    const EHlslTokenClass samplerType = peek();
+
+    TSamplerDim dim = EsdNone;
+    TType txType(EbtFloat, EvqUniform, 4); // default type is float4
+
+    bool isShadow = false;
+
+    switch (samplerType)
+    {
+    case EHTokSampler:		dim = Esd2D;	break;
+    case EHTokSampler1d:	dim = Esd1D;	break;
+    case EHTokSampler2d:	dim = Esd2D;	break;
+    case EHTokSampler3d:	dim = Esd3D;	break;
+    case EHTokSamplerCube:	dim = EsdCube;	break;
+    default:
+        return false; // not a dx9 sampler declaration
+    }
+
+    advanceToken(); // consume the sampler type keyword
+
+    TArraySizes *arraySizes = nullptr; // TODO: array
+
+    TSampler sampler;
+    sampler.set(txType.getBasicType(), dim, false, isShadow, false);
+
+	if (!parseContext.setTextureReturnType(sampler, txType, token.loc))
+        return false;
+
+    type.shallowCopy(TType(sampler, EvqUniform, arraySizes));
+    type.getQualifier().layoutFormat = ElfNone;
 
     return true;
 }
@@ -1453,7 +1488,13 @@ bool HlslGrammar::acceptType(TType& type, TIntermNode*& nodeList)
     case EHTokSampler2d:              // ...
     case EHTokSampler3d:              // ...
     case EHTokSamplerCube:            // ...
-    case EHTokSamplerState:           // ...
+        if (parseContext.hlslDX9Compatible())
+			return acceptSamplerTypeDX9(type);
+        else
+            return acceptSamplerType(type);
+        break;
+
+    case EHTokSamplerState:           // fall through
     case EHTokSamplerComparisonState: // ...
         return acceptSamplerType(type);
         break;
@@ -2295,9 +2336,9 @@ bool HlslGrammar::acceptStructBufferType(TType& type)
 
     // Create an unsized array out of that type.
     // TODO: does this work if it's already an array type?
-    TArraySizes unsizedArray;
-    unsizedArray.addInnerSize(UnsizedArraySize);
-    templateType->newArraySizes(unsizedArray);
+    TArraySizes* unsizedArray = new TArraySizes;
+    unsizedArray->addInnerSize(UnsizedArraySize);
+    templateType->transferArraySizes(unsizedArray);
     templateType->getQualifier().storage = storage;
 
     // field name is canonical for all structbuffers
@@ -2395,7 +2436,7 @@ bool HlslGrammar::acceptStructDeclarationList(TTypeList*& typeList, TIntermNode*
                 TArraySizes* arraySizes = nullptr;
                 acceptArraySpecifier(arraySizes);
                 if (arraySizes)
-                    typeList->back().type->newArraySizes(*arraySizes);
+                    typeList->back().type->transferArraySizes(arraySizes);
 
                 acceptPostDecls(member.type->getQualifier());
 
@@ -2578,12 +2619,12 @@ bool HlslGrammar::acceptParameterDeclaration(TFunction& function)
     TArraySizes* arraySizes = nullptr;
     acceptArraySpecifier(arraySizes);
     if (arraySizes) {
-        if (arraySizes->isImplicit()) {
-            parseContext.error(token.loc, "function parameter array cannot be implicitly sized", "", "");
+        if (arraySizes->hasUnsized()) {
+            parseContext.error(token.loc, "function parameter requires array size", "[]", "");
             return false;
         }
 
-        type->newArraySizes(*arraySizes);
+        type->transferArraySizes(arraySizes);
     }
 
     // post_decls
@@ -2954,7 +2995,7 @@ bool HlslGrammar::acceptUnaryExpression(TIntermTyped*& node)
             TArraySizes* arraySizes = nullptr;
             acceptArraySpecifier(arraySizes);
             if (arraySizes != nullptr)
-                castType.newArraySizes(*arraySizes);
+                castType.transferArraySizes(arraySizes);
             TSourceLoc loc = token.loc;
             if (acceptTokenClass(EHTokRightParen)) {
                 // We've matched "(type)" now, get the expression to cast

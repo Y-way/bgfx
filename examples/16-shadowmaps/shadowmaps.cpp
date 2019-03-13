@@ -1076,7 +1076,7 @@ void worldSpaceFrustumCorners(float* _corners24f
 	const float fh = _far  * _projHeight;
 
 	const uint8_t numCorners = 8;
-	const float corners[numCorners][3] =
+	const bx::Vec3 corners[numCorners] =
 	{
 		{ -nw,  nh, _near },
 		{  nw,  nh, _near },
@@ -1092,7 +1092,7 @@ void worldSpaceFrustumCorners(float* _corners24f
 	float (*out)[3] = (float(*)[3])_corners24f;
 	for (uint8_t ii = 0; ii < numCorners; ++ii)
 	{
-		bx::vec3MulMtx( (float*)&out[ii], (float*)&corners[ii], _invViewMtx);
+		bx::store(&out[ii], bx::mul(corners[ii], _invViewMtx) );
 	}
 }
 
@@ -1301,8 +1301,13 @@ public:
 		m_viewState = ViewState(uint16_t(m_width), uint16_t(m_height));
 		m_clearValues = ClearValues(0x00000000, 1.0f, 0);
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_viewState.m_width, m_viewState.m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_viewState.m_width;
+		init.resolution.height = m_viewState.m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		// Enable debug text.
 		bgfx::setDebug(m_debug);
@@ -1329,11 +1334,11 @@ public:
 
 		// Uniforms.
 		s_uniforms.init();
-		s_texColor = bgfx::createUniform("s_texColor",  bgfx::UniformType::Int1);
-		s_shadowMap[0] = bgfx::createUniform("s_shadowMap0", bgfx::UniformType::Int1);
-		s_shadowMap[1] = bgfx::createUniform("s_shadowMap1", bgfx::UniformType::Int1);
-		s_shadowMap[2] = bgfx::createUniform("s_shadowMap2", bgfx::UniformType::Int1);
-		s_shadowMap[3] = bgfx::createUniform("s_shadowMap3", bgfx::UniformType::Int1);
+		s_texColor = bgfx::createUniform("s_texColor",  bgfx::UniformType::Sampler);
+		s_shadowMap[0] = bgfx::createUniform("s_shadowMap0", bgfx::UniformType::Sampler);
+		s_shadowMap[1] = bgfx::createUniform("s_shadowMap1", bgfx::UniformType::Sampler);
+		s_shadowMap[2] = bgfx::createUniform("s_shadowMap2", bgfx::UniformType::Sampler);
+		s_shadowMap[3] = bgfx::createUniform("s_shadowMap3", bgfx::UniformType::Sampler);
 
 		// Programs.
 		s_programs.init();
@@ -1896,9 +1901,8 @@ public:
 		s_rtBlur = bgfx::createFrameBuffer(m_currentShadowMapSize, m_currentShadowMapSize, bgfx::TextureFormat::BGRA8);
 
 		// Setup camera.
-		float initialPos[3] = { 0.0f, 60.0f, -105.0f };
 		cameraCreate();
-		cameraSetPosition(initialPos);
+		cameraSetPosition({ 0.0f, 60.0f, -105.0f });
 		cameraSetVerticalAngle(-0.45f);
 
 		m_timeAccumulatorLight = 0.0f;
@@ -1957,7 +1961,7 @@ public:
 			const float camAspect  = float(int32_t(m_viewState.m_width) ) / float(int32_t(m_viewState.m_height) );
 			const float camNear    = 0.1f;
 			const float camFar     = 2000.0f;
-			const float projHeight = 1.0f/bx::tan(bx::toRad(camFovy)*0.5f);
+			const float projHeight = bx::tan(bx::toRad(camFovy)*0.5f);
 			const float projWidth  = projHeight * camAspect;
 			bx::mtxProj(m_viewState.m_proj, camFovy, camAspect, camNear, camFar, caps->homogeneousDepth);
 			cameraGetViewMtx(m_viewState.m_view);
@@ -2328,9 +2332,8 @@ public:
 					lightProj[ProjType::Horizontal][14] /= currentSmSettings->m_far;
 				}
 
-				float at[3];
-				bx::vec3Add(at, m_pointLight.m_position.m_v, m_pointLight.m_spotDirectionInner.m_v);
-				bx::mtxLookAt(lightView[TetrahedronFaces::Green], m_pointLight.m_position.m_v, at);
+				const bx::Vec3 at = bx::add(bx::load<bx::Vec3>(m_pointLight.m_position.m_v), bx::load<bx::Vec3>(m_pointLight.m_spotDirectionInner.m_v) );
+				bx::mtxLookAt(lightView[TetrahedronFaces::Green], bx::load<bx::Vec3>(m_pointLight.m_position.m_v), at);
 			}
 			else if (LightType::PointLight == m_settings.m_lightType)
 			{
@@ -2399,9 +2402,9 @@ public:
 
 					float tmp[3] =
 					{
-						-bx::vec3Dot(m_pointLight.m_position.m_v, &mtxTmp[0]),
-						-bx::vec3Dot(m_pointLight.m_position.m_v, &mtxTmp[4]),
-						-bx::vec3Dot(m_pointLight.m_position.m_v, &mtxTmp[8]),
+						-bx::dot(bx::load<bx::Vec3>(m_pointLight.m_position.m_v), bx::load<bx::Vec3>(&mtxTmp[0]) ),
+						-bx::dot(bx::load<bx::Vec3>(m_pointLight.m_position.m_v), bx::load<bx::Vec3>(&mtxTmp[4]) ),
+						-bx::dot(bx::load<bx::Vec3>(m_pointLight.m_position.m_v), bx::load<bx::Vec3>(&mtxTmp[8]) ),
 					};
 
 					bx::mtxTranspose(mtxYpr[ii], mtxTmp);
@@ -2416,13 +2419,13 @@ public:
 			else // LightType::DirectionalLight == settings.m_lightType
 			{
 				// Setup light view mtx.
-				float eye[3] =
+				const bx::Vec3 at = { 0.0f, 0.0f, 0.0f };
+				const bx::Vec3 eye =
 				{
-					-m_directionalLight.m_position.m_x
-					, -m_directionalLight.m_position.m_y
-					, -m_directionalLight.m_position.m_z
+					-m_directionalLight.m_position.m_x,
+					-m_directionalLight.m_position.m_y,
+					-m_directionalLight.m_position.m_z,
 				};
-				float at[3] = { 0.0f, 0.0f, 0.0f };
 				bx::mtxLookAt(lightView[0], eye, at);
 
 				// Compute camera inverse view mtx.
@@ -2450,16 +2453,16 @@ public:
 
 				float mtxProj[16];
 				bx::mtxOrtho(
-							 mtxProj
-							 , 1.0f
-							 , -1.0f
-							 , 1.0f
-							 , -1.0f
-							 , -currentSmSettings->m_far
-							 , currentSmSettings->m_far
-							 , 0.0f
-							 , caps->homogeneousDepth
-							 );
+					  mtxProj
+					, 1.0f
+					, -1.0f
+					, 1.0f
+					, -1.0f
+					, -currentSmSettings->m_far
+					, currentSmSettings->m_far
+					, 0.0f
+					, caps->homogeneousDepth
+					);
 
 				const uint8_t numCorners = 8;
 				float frustumCorners[maxNumSplits][numCorners][3];
@@ -2468,34 +2471,24 @@ public:
 					// Compute frustum corners for one split in world space.
 					worldSpaceFrustumCorners( (float*)frustumCorners[ii], splitSlices[nn], splitSlices[ff], projWidth, projHeight, mtxViewInv);
 
-					float min[3] = {  9000.0f,  9000.0f,  9000.0f };
-					float max[3] = { -9000.0f, -9000.0f, -9000.0f };
+					bx::Vec3 min = {  9000.0f,  9000.0f,  9000.0f };
+					bx::Vec3 max = { -9000.0f, -9000.0f, -9000.0f };
 
 					for (uint8_t jj = 0; jj < numCorners; ++jj)
 					{
 						// Transform to light space.
-						float lightSpaceFrustumCorner[3];
-						bx::vec3MulMtx(lightSpaceFrustumCorner, frustumCorners[ii][jj], lightView[0]);
+						const bx::Vec3 xyz = bx::mul(bx::load<bx::Vec3>(frustumCorners[ii][jj]), lightView[0]);
 
 						// Update bounding box.
-						min[0] = bx::min(min[0], lightSpaceFrustumCorner[0]);
-						max[0] = bx::max(max[0], lightSpaceFrustumCorner[0]);
-						min[1] = bx::min(min[1], lightSpaceFrustumCorner[1]);
-						max[1] = bx::max(max[1], lightSpaceFrustumCorner[1]);
-						min[2] = bx::min(min[2], lightSpaceFrustumCorner[2]);
-						max[2] = bx::max(max[2], lightSpaceFrustumCorner[2]);
+						min = bx::min(min, xyz);
+						max = bx::max(max, xyz);
 					}
 
-					float minproj[3];
-					float maxproj[3];
-					bx::vec3MulMtxH(minproj, min, mtxProj);
-					bx::vec3MulMtxH(maxproj, max, mtxProj);
+					const bx::Vec3 minproj = bx::mulH(min, mtxProj);
+					const bx::Vec3 maxproj = bx::mulH(max, mtxProj);
 
-					float offsetx, offsety;
-					float scalex, scaley;
-
-					scalex = 2.0f / (maxproj[0] - minproj[0]);
-					scaley = 2.0f / (maxproj[1] - minproj[1]);
+					float scalex = 2.0f / (maxproj.x - minproj.x);
+					float scaley = 2.0f / (maxproj.y - minproj.y);
 
 					if (m_settings.m_stabilize)
 					{
@@ -2504,8 +2497,8 @@ public:
 						scaley = quantizer / bx::ceil(quantizer / scaley);
 					}
 
-					offsetx = 0.5f * (maxproj[0] + minproj[0]) * scalex;
-					offsety = 0.5f * (maxproj[1] + minproj[1]) * scaley;
+					float offsetx = 0.5f * (maxproj.x + minproj.x) * scalex;
+					float offsety = 0.5f * (maxproj.y + minproj.y) * scaley;
 
 					if (m_settings.m_stabilize)
 					{
