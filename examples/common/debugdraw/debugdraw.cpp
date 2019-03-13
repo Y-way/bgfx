@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -1315,14 +1315,6 @@ struct DebugDrawEncoderImpl
 		m_vertexPos = m_pos;
 	}
 
-	void moveTo(const void* _pos)
-	{
-		BX_CHECK(State::Count != m_state);
-
-		const float* pos = (const float*)_pos;
-		moveTo(pos[0], pos[1], pos[2]);
-	}
-
 	void moveTo(const bx::Vec3& _pos)
 	{
 		BX_CHECK(State::Count != m_state);
@@ -1387,14 +1379,6 @@ struct DebugDrawEncoderImpl
 		m_indices[m_indexPos++] = curr;
 	}
 
-	void lineTo(const void* _pos)
-	{
-		BX_CHECK(State::Count != m_state);
-
-		const float* pos = (const float*)_pos;
-		lineTo(pos[0], pos[1], pos[2]);
-	}
-
 	void lineTo(const bx::Vec3& _pos)
 	{
 		BX_CHECK(State::Count != m_state);
@@ -1420,46 +1404,46 @@ struct DebugDrawEncoderImpl
 		const Attrib& attrib = m_attrib[m_stack];
 		if (attrib.m_wireframe)
 		{
-			moveTo(_aabb.m_min.x, _aabb.m_min.y, _aabb.m_min.z);
-			lineTo(_aabb.m_max.x, _aabb.m_min.y, _aabb.m_min.z);
-			lineTo(_aabb.m_max.x, _aabb.m_max.y, _aabb.m_min.z);
-			lineTo(_aabb.m_min.x, _aabb.m_max.y, _aabb.m_min.z);
+			moveTo(_aabb.min.x, _aabb.min.y, _aabb.min.z);
+			lineTo(_aabb.max.x, _aabb.min.y, _aabb.min.z);
+			lineTo(_aabb.max.x, _aabb.max.y, _aabb.min.z);
+			lineTo(_aabb.min.x, _aabb.max.y, _aabb.min.z);
 			close();
 
-			moveTo(_aabb.m_min.x, _aabb.m_min.y, _aabb.m_max.z);
-			lineTo(_aabb.m_max.x, _aabb.m_min.y, _aabb.m_max.z);
-			lineTo(_aabb.m_max.x, _aabb.m_max.y, _aabb.m_max.z);
-			lineTo(_aabb.m_min.x, _aabb.m_max.y, _aabb.m_max.z);
+			moveTo(_aabb.min.x, _aabb.min.y, _aabb.max.z);
+			lineTo(_aabb.max.x, _aabb.min.y, _aabb.max.z);
+			lineTo(_aabb.max.x, _aabb.max.y, _aabb.max.z);
+			lineTo(_aabb.min.x, _aabb.max.y, _aabb.max.z);
 			close();
 
-			moveTo(_aabb.m_min.x, _aabb.m_min.y, _aabb.m_min.z);
-			lineTo(_aabb.m_min.x, _aabb.m_min.y, _aabb.m_max.z);
+			moveTo(_aabb.min.x, _aabb.min.y, _aabb.min.z);
+			lineTo(_aabb.min.x, _aabb.min.y, _aabb.max.z);
 
-			moveTo(_aabb.m_max.x, _aabb.m_min.y, _aabb.m_min.z);
-			lineTo(_aabb.m_max.x, _aabb.m_min.y, _aabb.m_max.z);
+			moveTo(_aabb.max.x, _aabb.min.y, _aabb.min.z);
+			lineTo(_aabb.max.x, _aabb.min.y, _aabb.max.z);
 
-			moveTo(_aabb.m_min.x, _aabb.m_max.y, _aabb.m_min.z);
-			lineTo(_aabb.m_min.x, _aabb.m_max.y, _aabb.m_max.z);
+			moveTo(_aabb.min.x, _aabb.max.y, _aabb.min.z);
+			lineTo(_aabb.min.x, _aabb.max.y, _aabb.max.z);
 
-			moveTo(_aabb.m_max.x, _aabb.m_max.y, _aabb.m_min.z);
-			lineTo(_aabb.m_max.x, _aabb.m_max.y, _aabb.m_max.z);
+			moveTo(_aabb.max.x, _aabb.max.y, _aabb.min.z);
+			lineTo(_aabb.max.x, _aabb.max.y, _aabb.max.z);
 		}
 		else
 		{
 			Obb obb;
-			aabbToObb(obb, _aabb);
-			draw(Mesh::Cube, obb.m_mtx, 1, false);
+			toObb(obb, _aabb);
+			draw(Mesh::Cube, obb.mtx, 1, false);
 		}
 	}
 
 	void draw(const Cylinder& _cylinder, bool _capsule)
 	{
-		drawCylinder(_cylinder.m_pos, _cylinder.m_end, _cylinder.m_radius, _capsule);
+		drawCylinder(_cylinder.pos, _cylinder.end, _cylinder.radius, _capsule);
 	}
 
 	void draw(const Disk& _disk)
 	{
-		drawCircle(_disk.m_normal, _disk.m_center, _disk.m_radius, 0.0f);
+		drawCircle(_disk.normal, _disk.center, _disk.radius, 0.0f);
 	}
 
 	void draw(const Obb& _obb)
@@ -1467,7 +1451,7 @@ struct DebugDrawEncoderImpl
 		const Attrib& attrib = m_attrib[m_stack];
 		if (attrib.m_wireframe)
 		{
-			pushTransform(_obb.m_mtx, 1);
+			pushTransform(_obb.mtx, 1);
 
 			moveTo(-1.0f, -1.0f, -1.0f);
 			lineTo( 1.0f, -1.0f, -1.0f);
@@ -1497,7 +1481,7 @@ struct DebugDrawEncoderImpl
 		}
 		else
 		{
-			draw(Mesh::Cube, _obb.m_mtx, 1, false);
+			draw(Mesh::Cube, _obb.mtx, 1, false);
 		}
 	}
 
@@ -1506,21 +1490,44 @@ struct DebugDrawEncoderImpl
 		const Attrib& attrib = m_attrib[m_stack];
 		float mtx[16];
 		bx::mtxSRT(mtx
-			, _sphere.m_radius
-			, _sphere.m_radius
-			, _sphere.m_radius
+			, _sphere.radius
+			, _sphere.radius
+			, _sphere.radius
 			, 0.0f
 			, 0.0f
 			, 0.0f
-			, _sphere.m_center.x
-			, _sphere.m_center.y
-			, _sphere.m_center.z
+			, _sphere.center.x
+			, _sphere.center.y
+			, _sphere.center.z
 			);
 		uint8_t lod = attrib.m_lod > Mesh::SphereMaxLod
 			? uint8_t(Mesh::SphereMaxLod)
 			: attrib.m_lod
 			;
 		draw(Mesh::Enum(Mesh::Sphere0 + lod), mtx, 1, attrib.m_wireframe);
+	}
+
+	void draw(const Triangle& _triangle)
+	{
+		Attrib& attrib = m_attrib[m_stack];
+		if (attrib.m_wireframe)
+		{
+			moveTo(_triangle.v0);
+			lineTo(_triangle.v1);
+			lineTo(_triangle.v2);
+			close();
+		}
+		else
+		{
+			BX_STATIC_ASSERT(sizeof(DdVertex) == sizeof(bx::Vec3), "");
+
+			uint64_t old = attrib.m_state;
+			attrib.m_state &= ~BGFX_STATE_CULL_MASK;
+
+			draw(false, 3, reinterpret_cast<const DdVertex*>(&_triangle.v0.x), 0, NULL);
+
+			attrib.m_state = old;
+		}
 	}
 
 	void setUParams(const Attrib& _attrib, bool _wireframe)
@@ -1627,7 +1634,6 @@ struct DebugDrawEncoderImpl
 						, false
 						);
 
-
 					bgfx::allocTransientIndexBuffer(&tib, numIndices);
 					bgfx::topologyConvert(
 						  bgfx::TopologyConvert::TriListToLineList
@@ -1643,11 +1649,15 @@ struct DebugDrawEncoderImpl
 					bgfx::allocTransientIndexBuffer(&tib, numIndices);
 					bx::memCopy(tib.data, _indices, numIndices * sizeof(uint16_t) );
 				}
+
 				m_encoder->setIndexBuffer(&tib);
 			}
 
 			m_encoder->setTransform(m_mtxStack[m_mtxStackCurrent].mtx);
-			bgfx::ProgramHandle program = s_dds.m_program[wireframe ? Program::FillMesh : Program::FillLitMesh];
+			bgfx::ProgramHandle program = s_dds.m_program[wireframe
+				? Program::FillMesh
+				: Program::FillLitMesh
+				];
 			m_encoder->submit(m_viewId, program);
 		}
 	}
@@ -1657,39 +1667,41 @@ struct DebugDrawEncoderImpl
 		bx::Plane planes[6];
 		buildFrustumPlanes(planes, _viewProj);
 
-		bx::Vec3 points[8];
-		points[0] = intersectPlanes(planes[0], planes[2], planes[4]);
-		points[1] = intersectPlanes(planes[0], planes[3], planes[4]);
-		points[2] = intersectPlanes(planes[0], planes[3], planes[5]);
-		points[3] = intersectPlanes(planes[0], planes[2], planes[5]);
-		points[4] = intersectPlanes(planes[1], planes[2], planes[4]);
-		points[5] = intersectPlanes(planes[1], planes[3], planes[4]);
-		points[6] = intersectPlanes(planes[1], planes[3], planes[5]);
-		points[7] = intersectPlanes(planes[1], planes[2], planes[5]);
+		const bx::Vec3 points[8] =
+		{
+			intersectPlanes(planes[0], planes[2], planes[4]),
+			intersectPlanes(planes[0], planes[3], planes[4]),
+			intersectPlanes(planes[0], planes[3], planes[5]),
+			intersectPlanes(planes[0], planes[2], planes[5]),
+			intersectPlanes(planes[1], planes[2], planes[4]),
+			intersectPlanes(planes[1], planes[3], planes[4]),
+			intersectPlanes(planes[1], planes[3], planes[5]),
+			intersectPlanes(planes[1], planes[2], planes[5]),
+		};
 
-		moveTo(&points[0].x);
-		lineTo(&points[1].x);
-		lineTo(&points[2].x);
-		lineTo(&points[3].x);
+		moveTo(points[0]);
+		lineTo(points[1]);
+		lineTo(points[2]);
+		lineTo(points[3]);
 		close();
 
-		moveTo(&points[4].x);
-		lineTo(&points[5].x);
-		lineTo(&points[6].x);
-		lineTo(&points[7].x);
+		moveTo(points[4]);
+		lineTo(points[5]);
+		lineTo(points[6]);
+		lineTo(points[7]);
 		close();
 
-		moveTo(&points[0].x);
-		lineTo(&points[4].x);
+		moveTo(points[0]);
+		lineTo(points[4]);
 
-		moveTo(&points[1].x);
-		lineTo(&points[5].x);
+		moveTo(points[1]);
+		lineTo(points[5]);
 
-		moveTo(&points[2].x);
-		lineTo(&points[6].x);
+		moveTo(points[2]);
+		lineTo(points[6]);
 
-		moveTo(&points[3].x);
-		lineTo(&points[7].x);
+		moveTo(points[3]);
+		lineTo(points[7]);
 	}
 
 	void drawFrustum(const void* _viewProj)
@@ -1958,11 +1970,11 @@ struct DebugDrawEncoderImpl
 			draw(Mesh::Enum(Mesh::Capsule0 + lod), mtx[0], 2, attrib.m_wireframe);
 
 			Sphere sphere;
-			sphere.m_center = _from;
-			sphere.m_radius = _radius;
+			sphere.center = _from;
+			sphere.radius = _radius;
 			draw(sphere);
 
-			sphere.m_center = _to;
+			sphere.center = _to;
 			draw(sphere);
 		}
 		else
@@ -2035,10 +2047,10 @@ struct DebugDrawEncoderImpl
 		const uint32_t num = (_size/2)*2+1;
 		const float halfExtent = float(_size/2);
 
-		const bx::Vec3 umin   = bx::mul(udir, -halfExtent);
-		const bx::Vec3 umax   = bx::mul(udir,  halfExtent);
-		const bx::Vec3 vmin   = bx::mul(vdir, -halfExtent);
-		const bx::Vec3 vmax   = bx::mul(vdir,  halfExtent);
+		const bx::Vec3 umin = bx::mul(udir, -halfExtent);
+		const bx::Vec3 umax = bx::mul(udir,  halfExtent);
+		const bx::Vec3 vmin = bx::mul(vdir, -halfExtent);
+		const bx::Vec3 vmax = bx::mul(vdir,  halfExtent);
 
 		bx::Vec3 xs = bx::add(_center, bx::add(umin, vmin) );
 		bx::Vec3 xe = bx::add(_center, bx::add(umax, vmin) );
@@ -2407,7 +2419,7 @@ void DebugDrawEncoder::moveTo(float _x, float _y, float _z)
 	DEBUG_DRAW_ENCODER(moveTo(_x, _y, _z) );
 }
 
-void DebugDrawEncoder::moveTo(const void* _pos)
+void DebugDrawEncoder::moveTo(const bx::Vec3& _pos)
 {
 	DEBUG_DRAW_ENCODER(moveTo(_pos) );
 }
@@ -2417,7 +2429,7 @@ void DebugDrawEncoder::lineTo(float _x, float _y, float _z)
 	DEBUG_DRAW_ENCODER(lineTo(_x, _y, _z) );
 }
 
-void DebugDrawEncoder::lineTo(const void* _pos)
+void DebugDrawEncoder::lineTo(const bx::Vec3& _pos)
 {
 	DEBUG_DRAW_ENCODER(lineTo(_pos) );
 }
@@ -2457,9 +2469,14 @@ void DebugDrawEncoder::draw(const Sphere& _sphere)
 	DEBUG_DRAW_ENCODER(draw(_sphere) );
 }
 
+void DebugDrawEncoder::draw(const Triangle& _triangle)
+{
+	DEBUG_DRAW_ENCODER(draw(_triangle) );
+}
+
 void DebugDrawEncoder::draw(const Cone& _cone)
 {
-	DEBUG_DRAW_ENCODER(drawCone(_cone.m_pos, _cone.m_end, _cone.m_radius) );
+	DEBUG_DRAW_ENCODER(drawCone(_cone.pos, _cone.end, _cone.radius) );
 }
 
 void DebugDrawEncoder::draw(GeometryHandle _handle)
@@ -2545,4 +2562,15 @@ void DebugDrawEncoder::drawGrid(Axis::Enum _axis, const bx::Vec3& _center, uint3
 void DebugDrawEncoder::drawOrb(float _x, float _y, float _z, float _radius, Axis::Enum _highlight)
 {
 	DEBUG_DRAW_ENCODER(drawOrb(_x, _y, _z, _radius, _highlight) );
+}
+
+DebugDrawEncoderScopePush::DebugDrawEncoderScopePush(DebugDrawEncoder& _dde)
+	: m_dde(_dde)
+{
+	m_dde.push();
+}
+
+DebugDrawEncoderScopePush::~DebugDrawEncoderScopePush()
+{
+	m_dde.pop();
 }

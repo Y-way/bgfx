@@ -1,5 +1,5 @@
 --
--- Copyright 2010-2018 Branimir Karadzic. All rights reserved.
+-- Copyright 2010-2019 Branimir Karadzic. All rights reserved.
 -- License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
 --
 
@@ -16,16 +16,19 @@ project "spirv-opt"
 	kind "StaticLib"
 
 	includedirs {
+		SPIRV_TOOLS,
+
 		path.join(SPIRV_TOOLS, "include"),
 		path.join(SPIRV_TOOLS, "include/generated"),
 		path.join(SPIRV_TOOLS, "source"),
-		path.join(SPIRV_TOOLS),
 		path.join(SPIRV_HEADERS, "include"),
 	}
 
 	files {
 		path.join(SPIRV_TOOLS, "source/opt/**.cpp"),
 		path.join(SPIRV_TOOLS, "source/opt/**.h"),
+		path.join(SPIRV_TOOLS, "source/reduce/**.cpp"),
+		path.join(SPIRV_TOOLS, "source/reduce/**.h"),
 
 		-- libspirv
 		path.join(SPIRV_TOOLS, "source/assembly_grammar.cpp"),
@@ -596,6 +599,7 @@ project "shaderc"
 		path.join(BGFX_DIR, "include"),
 
 		path.join(BGFX_DIR, "3rdparty/dxsdk/include"),
+
 		FCPP_DIR,
 
 		path.join(BGFX_DIR, "3rdparty/glslang/glslang/Public"),
@@ -604,6 +608,10 @@ project "shaderc"
 
 		path.join(GLSL_OPTIMIZER, "include"),
 		path.join(GLSL_OPTIMIZER, "src/glsl"),
+
+		SPIRV_CROSS,
+
+		path.join(SPIRV_TOOLS, "include"),
 	}
 
 	links {
@@ -640,12 +648,17 @@ project "shaderc"
 			"psapi",
 		}
 
+	configuration { "osx or linux*" }
+		links {
+			"pthread",
+		}
+
 	configuration {}
 
-	if filesexist(BGFX_DIR, path.join(BGFX_DIR, "../bgfx-ext"), {
+	if filesexist(BGFX_DIR, path.join(BGFX_DIR, "../bgfx-gnm"), {
 		path.join(BGFX_DIR, "scripts/shaderc.lua"), }) then
 
-		if filesexist(BGFX_DIR, path.join(BGFX_DIR, "../bgfx-ext"), {
+		if filesexist(BGFX_DIR, path.join(BGFX_DIR, "../bgfx-gnm"), {
 			path.join(BGFX_DIR, "tools/shaderc/shaderc_pssl.cpp"), }) then
 
 			removefiles {
@@ -653,15 +666,8 @@ project "shaderc"
 			}
 		end
 
-		dofile(path.join(BGFX_DIR, "../bgfx-ext/scripts/shaderc.lua") )
+		dofile(path.join(BGFX_DIR, "../bgfx-gnm/scripts/shaderc.lua") )
 	end
-
-	configuration { "osx or linux*" }
-		links {
-			"pthread",
-		}
-
-	configuration {}
 
 	strip()
 

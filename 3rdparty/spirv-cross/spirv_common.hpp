@@ -23,13 +23,13 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
-#include <locale>
 #include <memory>
 #include <sstream>
 #include <stack>
 #include <stdexcept>
 #include <stdint.h>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -59,7 +59,7 @@ report_and_abort(const std::string &msg)
 class CompilerError : public std::runtime_error
 {
 public:
-	CompilerError(const std::string &str)
+	explicit CompilerError(const std::string &str)
 	    : std::runtime_error(str)
 	{
 	}
@@ -245,10 +245,12 @@ inline std::string merge(const std::vector<std::string> &list)
 	return s;
 }
 
-template <typename T>
-inline std::string convert_to_string(T &&t)
+// Make sure we don't accidentally call this with float or doubles with SFINAE.
+// Have to use the radix-aware overload.
+template <typename T, typename std::enable_if<!std::is_floating_point<T>::value, int>::type = 0>
+inline std::string convert_to_string(const T &t)
 {
-	return std::to_string(std::forward<T>(t));
+	return std::to_string(t);
 }
 
 // Allow implementations to set a convenient standard precision
@@ -263,24 +265,43 @@ inline std::string convert_to_string(T &&t)
 #pragma warning(disable : 4996)
 #endif
 
-inline std::string convert_to_string(float t)
+static inline void fixup_radix_point(char *str, char radix_point)
+{
+	// Setting locales is a very risky business in multi-threaded program,
+	// so just fixup locales instead. We only need to care about the radix point.
+	if (radix_point != '.')
+	{
+		while (*str != '\0')
+		{
+			if (*str == radix_point)
+				*str = '.';
+			str++;
+		}
+	}
+}
+
+inline std::string convert_to_string(float t, char locale_radix_point)
 {
 	// std::to_string for floating point values is broken.
 	// Fallback to something more sane.
 	char buf[64];
 	sprintf(buf, SPIRV_CROSS_FLT_FMT, t);
+	fixup_radix_point(buf, locale_radix_point);
+
 	// Ensure that the literal is float.
 	if (!strchr(buf, '.') && !strchr(buf, 'e'))
 		strcat(buf, ".0");
 	return buf;
 }
 
-inline std::string convert_to_string(double t)
+inline std::string convert_to_string(double t, char locale_radix_point)
 {
 	// std::to_string for floating point values is broken.
 	// Fallback to something more sane.
 	char buf[64];
 	sprintf(buf, SPIRV_CROSS_FLT_FMT, t);
+	fixup_radix_point(buf, locale_radix_point);
+
 	// Ensure that the literal is float.
 	if (!strchr(buf, '.') && !strchr(buf, 'e'))
 		strcat(buf, ".0");
@@ -322,14 +343,14 @@ enum Types
 	TypeConstant,
 	TypeFunction,
 	TypeFunctionPrototype,
-	TypePointer,
 	TypeBlock,
 	TypeExtension,
 	TypeExpression,
 	TypeConstantOp,
 	TypeCombinedImageSampler,
 	TypeAccessChain,
-	TypeUndef
+	TypeUndef,
+	TypeCount
 };
 
 struct SPIRUndef : IVariant
@@ -338,7 +359,8 @@ struct SPIRUndef : IVariant
 	{
 		type = TypeUndef
 	};
-	SPIRUndef(uint32_t basetype_)
+
+	explicit SPIRUndef(uint32_t basetype_)
 	    : basetype(basetype_)
 	{
 	}
@@ -417,7 +439,8 @@ struct SPIRType : IVariant
 		Struct,
 		Image,
 		SampledImage,
-		Sampler
+		Sampler,
+		ControlPointArray
 	};
 
 	// Scalar/vector/matrix support.
@@ -489,7 +512,7 @@ struct SPIRExtension : IVariant
 		SPV_AMD_gcn_shader
 	};
 
-	SPIRExtension(Extension ext_)
+	explicit SPIRExtension(Extension ext_)
 	    : ext(ext_)
 	{
 	}
@@ -524,7 +547,7 @@ struct SPIREntryPoint
 	} workgroup_size;
 	uint32_t invocations = 0;
 	uint32_t output_vertices = 0;
-	spv::ExecutionModel model;
+	spv::ExecutionModel model = spv::ExecutionModelMax;
 };
 
 struct SPIRExpression : IVariant
@@ -584,7 +607,7 @@ struct SPIRFunctionPrototype : IVariant
 		type = TypeFunctionPrototype
 	};
 
-	SPIRFunctionPrototype(uint32_t return_type_)
+	explicit SPIRFunctionPrototype(uint32_t return_type_)
 	    : return_type(return_type_)
 	{
 	}
@@ -812,6 +835,11 @@ struct SPIRFunction : IVariant
 	// Need to defer this, because they might rely on things which change during compilation.
 	std::vector<std::function<void()>> fixup_hooks_in;
 
+	// On function entry, make sure to copy a constant array into thread addr space to work around
+	// the case where we are passing a constant array by value to a function on backends which do not
+	// consider arrays value types.
+	std::vector<uint32_t> constant_arrays_needed_on_stack;
+
 	bool active = false;
 	bool flush_undeclared = true;
 	bool do_combined_parameters = true;
@@ -830,7 +858,7 @@ struct SPIRAccessChain : IVariant
 	                int32_t static_index_)
 	    : basetype(basetype_)
 	    , storage(storage_)
-	    , base(base_)
+	    , base(std::move(base_))
 	    , dynamic_index(std::move(dynamic_index_))
 	    , static_index(static_index_)
 	{
@@ -1042,6 +1070,16 @@ struct SPIRConstant : IVariant
 		return uint16_t(m.c[col].r[row].u32 & 0xffffu);
 	}
 
+	inline int8_t scalar_i8(uint32_t col = 0, uint32_t row = 0) const
+	{
+		return int8_t(m.c[col].r[row].u32 & 0xffu);
+	}
+
+	inline uint8_t scalar_u8(uint32_t col = 0, uint32_t row = 0) const
+	{
+		return uint8_t(m.c[col].r[row].u32 & 0xffu);
+	}
+
 	inline float scalar_f16(uint32_t col = 0, uint32_t row = 0) const
 	{
 		return f16_to_f32(scalar_u16(col, row));
@@ -1178,7 +1216,7 @@ struct SPIRConstant : IVariant
 		}
 	}
 
-	uint32_t constant_type;
+	uint32_t constant_type = 0;
 	ConstantMatrix m;
 
 	// If this constant is a specialization constant (i.e. created with OpSpecConstant*).
@@ -1250,7 +1288,7 @@ public:
 		return *this;
 	}
 
-	void set(std::unique_ptr<IVariant> val, uint32_t new_type)
+	void set(std::unique_ptr<IVariant> val, Types new_type)
 	{
 		holder = std::move(val);
 		if (!allow_type_rewrite && type != TypeNone && type != new_type)
@@ -1264,7 +1302,7 @@ public:
 	{
 		if (!holder)
 			SPIRV_CROSS_THROW("nullptr");
-		if (T::type != type)
+		if (static_cast<Types>(T::type) != type)
 			SPIRV_CROSS_THROW("Bad cast");
 		return *static_cast<T *>(holder.get());
 	}
@@ -1274,12 +1312,12 @@ public:
 	{
 		if (!holder)
 			SPIRV_CROSS_THROW("nullptr");
-		if (T::type != type)
+		if (static_cast<Types>(T::type) != type)
 			SPIRV_CROSS_THROW("Bad cast");
 		return *static_cast<const T *>(holder.get());
 	}
 
-	uint32_t get_type() const
+	Types get_type() const
 	{
 		return type;
 	}
@@ -1307,7 +1345,7 @@ public:
 
 private:
 	std::unique_ptr<IVariant> holder;
-	uint32_t type = TypeNone;
+	Types type = TypeNone;
 	bool allow_type_rewrite = false;
 };
 
@@ -1328,12 +1366,13 @@ T &variant_set(Variant &var, P &&... args)
 {
 	auto uptr = std::unique_ptr<T>(new T(std::forward<P>(args)...));
 	auto ptr = uptr.get();
-	var.set(std::move(uptr), T::type);
+	var.set(std::move(uptr), static_cast<Types>(T::type));
 	return *ptr;
 }
 
 struct AccessChainMeta
 {
+	uint32_t storage_packed_type = 0;
 	bool need_transpose = false;
 	bool storage_is_packed = false;
 	bool storage_is_invariant = false;
@@ -1360,6 +1399,14 @@ struct Meta
 		uint32_t index = 0;
 		spv::FPRoundingMode fp_rounding_mode = spv::FPRoundingModeMax;
 		bool builtin = false;
+
+		struct
+		{
+			uint32_t packed_type = 0;
+			bool packed = false;
+			uint32_t ib_member_index = static_cast<uint32_t>(-1);
+			uint32_t ib_orig_id = 0;
+		} extended;
 	};
 
 	Decoration decoration;
@@ -1378,22 +1425,6 @@ struct Meta
 // name_of_type is the textual name of the type which will be used in the code unless written to by the callback.
 using VariableTypeRemapCallback =
     std::function<void(const SPIRType &type, const std::string &var_name, std::string &name_of_type)>;
-
-class ClassicLocale
-{
-public:
-	ClassicLocale()
-	{
-		old = std::locale::global(std::locale::classic());
-	}
-	~ClassicLocale()
-	{
-		std::locale::global(old);
-	}
-
-private:
-	std::locale old;
-};
 
 class Hasher
 {
@@ -1422,6 +1453,61 @@ static inline bool type_is_integral(const SPIRType &type)
 	return type.basetype == SPIRType::SByte || type.basetype == SPIRType::UByte || type.basetype == SPIRType::Short ||
 	       type.basetype == SPIRType::UShort || type.basetype == SPIRType::Int || type.basetype == SPIRType::UInt ||
 	       type.basetype == SPIRType::Int64 || type.basetype == SPIRType::UInt64;
+}
+
+static inline SPIRType::BaseType to_signed_basetype(uint32_t width)
+{
+	switch (width)
+	{
+	case 8:
+		return SPIRType::SByte;
+	case 16:
+		return SPIRType::Short;
+	case 32:
+		return SPIRType::Int;
+	case 64:
+		return SPIRType::Int64;
+	default:
+		SPIRV_CROSS_THROW("Invalid bit width.");
+	}
+}
+
+static inline SPIRType::BaseType to_unsigned_basetype(uint32_t width)
+{
+	switch (width)
+	{
+	case 8:
+		return SPIRType::UByte;
+	case 16:
+		return SPIRType::UShort;
+	case 32:
+		return SPIRType::UInt;
+	case 64:
+		return SPIRType::UInt64;
+	default:
+		SPIRV_CROSS_THROW("Invalid bit width.");
+	}
+}
+
+// Returns true if an arithmetic operation does not change behavior depending on signedness.
+static inline bool opcode_is_sign_invariant(spv::Op opcode)
+{
+	switch (opcode)
+	{
+	case spv::OpIEqual:
+	case spv::OpINotEqual:
+	case spv::OpISub:
+	case spv::OpIAdd:
+	case spv::OpIMul:
+	case spv::OpShiftLeftLogical:
+	case spv::OpBitwiseOr:
+	case spv::OpBitwiseXor:
+	case spv::OpBitwiseAnd:
+		return true;
+
+	default:
+		return false;
+	}
 }
 } // namespace spirv_cross
 

@@ -140,6 +140,11 @@ namespace bgfx { namespace mtl
 		{
 			return (uint32_t)m_obj.length;
 		}
+
+		void setLabel(const char* _label)
+		{
+			[m_obj setLabel:@(_label)];
+		}
 	MTL_CLASS_END
 
 	MTL_CLASS(CommandBuffer)
@@ -767,13 +772,8 @@ namespace bgfx { namespace mtl
 	{
 		BufferMtl()
 			: m_flags(BGFX_BUFFER_NONE)
-			, m_dynamic(false)
-			, m_bufferIndex(0)
+			, m_dynamic(NULL)
 		{
-			for (uint32_t ii = 0; ii < MTL_MAX_FRAMES_IN_FLIGHT; ++ii)
-			{
-				m_buffers[ii] = NULL;
-			}
 		}
 
 		void create(uint32_t _size, void* _data, uint16_t _flags, uint16_t _stride = 0, bool _vertex = false);
@@ -781,23 +781,21 @@ namespace bgfx { namespace mtl
 
 		void destroy()
 		{
-			for (uint32_t ii = 0; ii < MTL_MAX_FRAMES_IN_FLIGHT; ++ii)
+			MTL_RELEASE(m_ptr);
+
+			if (NULL != m_dynamic)
 			{
-				MTL_RELEASE(m_buffers[ii]);
+				BX_DELETE(g_allocator, m_dynamic);
+				m_dynamic = NULL;
 			}
-
-			m_dynamic = false;
 		}
-
-		Buffer getBuffer() const { return m_buffers[m_bufferIndex]; }
 
 		uint32_t m_size;
 		uint16_t m_flags;
+		bool     m_vertex;
 
-		bool m_dynamic;
-	private:
-		uint8_t  m_bufferIndex;
-		Buffer   m_buffers[MTL_MAX_FRAMES_IN_FLIGHT];
+		Buffer   m_ptr;
+		uint8_t* m_dynamic;
 	};
 
 	typedef BufferMtl IndexBufferMtl;
@@ -831,6 +829,7 @@ namespace bgfx { namespace mtl
 
 		Function m_function;
 		uint32_t m_hash;
+		uint16_t m_numThreads[3];
 	};
 
 	struct SamplerInfo
@@ -912,7 +911,7 @@ namespace bgfx { namespace mtl
 		SamplerInfo m_samplers[BGFX_CONFIG_MAX_TEXTURE_SAMPLERS];
 		uint32_t	m_samplerCount;
 
-		uint32_t 	m_numThreads[3];
+		uint16_t 	m_numThreads[3];
 
 		PredefinedUniform m_predefined[PredefinedUniform::Count*2];
 		uint8_t m_numPredefined;
@@ -1005,6 +1004,7 @@ namespace bgfx { namespace mtl
 		SwapChainMtl()
 			: m_metalLayer(nil)
 			, m_drawable(nil)
+			, m_drawableTexture(nil)
 			, m_backBufferColorMsaa()
 			, m_backBufferDepth()
 			, m_backBufferStencil()
@@ -1017,10 +1017,11 @@ namespace bgfx { namespace mtl
 		void init(void* _nwh);
 		void resize(FrameBufferMtl &_frameBuffer, uint32_t _width, uint32_t _height, uint32_t _flags);
 
-		id<CAMetalDrawable> currentDrawable();
+		id <MTLTexture> 	currentDrawableTexture();
 
 		CAMetalLayer* m_metalLayer;
 		id <CAMetalDrawable> m_drawable;
+		id <MTLTexture> 	 m_drawableTexture;
 		Texture m_backBufferColorMsaa;
 		Texture m_backBufferDepth;
 		Texture m_backBufferStencil;
@@ -1061,6 +1062,8 @@ namespace bgfx { namespace mtl
 
 		TextureHandle m_colorHandle[BGFX_CONFIG_MAX_FRAME_BUFFER_ATTACHMENTS-1];
 		TextureHandle m_depthHandle;
+		Attachment m_colorAttachment[BGFX_CONFIG_MAX_FRAME_BUFFER_ATTACHMENTS-1];
+		Attachment m_depthAttachment;
 		uint8_t m_num; // number of color handles
 	};
 

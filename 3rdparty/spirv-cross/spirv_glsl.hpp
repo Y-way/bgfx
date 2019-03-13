@@ -51,6 +51,15 @@ struct PlsRemap
 	PlsFormat format;
 };
 
+enum AccessChainFlagBits
+{
+	ACCESS_CHAIN_INDEX_IS_LITERAL_BIT = 1 << 0,
+	ACCESS_CHAIN_CHAIN_ONLY_BIT = 1 << 1,
+	ACCESS_CHAIN_PTR_CHAIN_BIT = 1 << 2,
+	ACCESS_CHAIN_SKIP_REGISTER_EXPRESSION_READ_BIT = 1 << 3
+};
+typedef uint32_t AccessChainFlags;
+
 class CompilerGLSL : public Compiler
 {
 public:
@@ -105,6 +114,7 @@ public:
 			// Inverts gl_Position.y or equivalent.
 			bool flip_vert_y = false;
 
+			// GLSL only, for HLSL version of this option, see CompilerHLSL.
 			// If true, the backend will assume that InstanceIndex will need to apply
 			// a base instance offset. Set to false if you know you will never use base instance
 			// functionality as it might remove some internal uniforms.
@@ -151,25 +161,9 @@ public:
 		init();
 	}
 
-	// Deprecate this interface because it doesn't overload properly with subclasses.
-	// Requires awkward static casting, which was a mistake.
-	SPIRV_CROSS_DEPRECATED("get_options() is obsolete, use get_common_options() instead.")
-	const Options &get_options() const
-	{
-		return options;
-	}
-
 	const Options &get_common_options() const
 	{
 		return options;
-	}
-
-	// Deprecate this interface because it doesn't overload properly with subclasses.
-	// Requires awkward static casting, which was a mistake.
-	SPIRV_CROSS_DEPRECATED("set_options() is obsolete, use set_common_options() instead.")
-	void set_options(Options &opts)
-	{
-		options = opts;
 	}
 
 	void set_common_options(const Options &opts)
@@ -260,7 +254,7 @@ protected:
 	virtual void emit_buffer_block(const SPIRVariable &type);
 	virtual void emit_push_constant_block(const SPIRVariable &var);
 	virtual void emit_uniform(const SPIRVariable &var);
-	virtual std::string unpack_expression_type(std::string expr_str, const SPIRType &type);
+	virtual std::string unpack_expression_type(std::string expr_str, const SPIRType &type, uint32_t packed_type_id);
 
 	std::unique_ptr<std::ostringstream> buffer;
 
@@ -348,6 +342,9 @@ protected:
 	std::unordered_set<std::string> block_ssbo_names;
 	std::unordered_set<std::string> block_names; // A union of all block_*_names.
 	std::unordered_map<std::string, std::unordered_set<uint64_t>> function_overloads;
+	std::unordered_map<uint32_t, std::string> preserved_aliases;
+	void preserve_alias_on_reset(uint32_t id);
+	void reset_name_caches();
 
 	bool processing_entry_point = false;
 
@@ -367,7 +364,6 @@ protected:
 		const char *basic_uint8_type = "uint8_t";
 		const char *basic_int16_type = "int16_t";
 		const char *basic_uint16_type = "uint16_t";
-		const char *half_literal_suffix = "hf";
 		const char *int16_t_literal_suffix = "s";
 		const char *uint16_t_literal_suffix = "us";
 		bool swizzle_is_function = false;
@@ -389,6 +385,7 @@ protected:
 		bool supports_extensions = false;
 		bool supports_empty_struct = false;
 		bool array_is_value_type = true;
+		bool comparison_image_samples_scalar = false;
 	} backend;
 
 	void emit_struct(SPIRType &type);
@@ -406,7 +403,7 @@ protected:
 	std::string constant_value_macro_name(uint32_t id);
 	void emit_constant(const SPIRConstant &constant);
 	void emit_specialization_constant_op(const SPIRConstantOp &constant);
-	std::string emit_continue_block(uint32_t continue_block);
+	std::string emit_continue_block(uint32_t continue_block, bool follow_true_block, bool follow_false_block);
 	bool attempt_emit_loop_header(SPIRBlock &block, SPIRBlock::Method method);
 	void propagate_loop_dominators(const SPIRBlock &block);
 
@@ -446,9 +443,10 @@ protected:
 	bool expression_is_forwarded(uint32_t id);
 	SPIRExpression &emit_op(uint32_t result_type, uint32_t result_id, const std::string &rhs, bool forward_rhs,
 	                        bool suppress_usage_tracking = false);
-	std::string access_chain_internal(uint32_t base, const uint32_t *indices, uint32_t count, bool index_is_literal,
-	                                  bool chain_only = false, bool ptr_chain = false, AccessChainMeta *meta = nullptr,
-	                                  bool register_expression_read = true);
+
+	std::string access_chain_internal(uint32_t base, const uint32_t *indices, uint32_t count, AccessChainFlags flags,
+	                                  AccessChainMeta *meta);
+
 	std::string access_chain(uint32_t base, const uint32_t *indices, uint32_t count, const SPIRType &target_type,
 	                         AccessChainMeta *meta = nullptr, bool ptr_chain = false);
 
@@ -475,11 +473,11 @@ protected:
 	void append_global_func_args(const SPIRFunction &func, uint32_t index, std::vector<std::string> &arglist);
 	std::string to_expression(uint32_t id, bool register_expression_read = true);
 	std::string to_enclosed_expression(uint32_t id, bool register_expression_read = true);
-	std::string to_unpacked_expression(uint32_t id);
-	std::string to_enclosed_unpacked_expression(uint32_t id);
+	std::string to_unpacked_expression(uint32_t id, bool register_expression_read = true);
+	std::string to_enclosed_unpacked_expression(uint32_t id, bool register_expression_read = true);
 	std::string to_dereferenced_expression(uint32_t id, bool register_expression_read = true);
-	std::string to_pointer_expression(uint32_t id);
-	std::string to_enclosed_pointer_expression(uint32_t id);
+	std::string to_pointer_expression(uint32_t id, bool register_expression_read = true);
+	std::string to_enclosed_pointer_expression(uint32_t id, bool register_expression_read = true);
 	std::string to_extract_component_expression(uint32_t id, uint32_t index);
 	std::string enclose_expression(const std::string &expr);
 	std::string dereference_expression(const std::string &expr);
@@ -623,16 +621,16 @@ protected:
 	void disallow_forwarding_in_expression_chain(const SPIRExpression &expr);
 
 	bool expression_is_constant_null(uint32_t id) const;
+	virtual void emit_store_statement(uint32_t lhs_expression, uint32_t rhs_expression);
+
+	uint32_t get_integer_width_for_instruction(const Instruction &instr) const;
+
+	bool variable_is_lut(const SPIRVariable &var) const;
+
+	char current_locale_radix_character = '.';
 
 private:
-	void init()
-	{
-		if (ir.source.known)
-		{
-			options.es = ir.source.es;
-			options.version = ir.source.version;
-		}
-	}
+	void init();
 };
 } // namespace spirv_cross
 

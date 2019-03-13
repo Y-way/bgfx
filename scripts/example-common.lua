@@ -1,5 +1,5 @@
 --
--- Copyright 2010-2018 Branimir Karadzic. All rights reserved.
+-- Copyright 2010-2019 Branimir Karadzic. All rights reserved.
 -- License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
 --
 
@@ -36,6 +36,22 @@ project ("example-common")
 		path.join(BGFX_DIR, "examples/common/**.cpp"),
 		path.join(BGFX_DIR, "examples/common/**.h"),
 	}
+
+	if filesexist(BGFX_DIR, path.join(BGFX_DIR, "../bgfx-gnm"),
+		{ path.join(BGFX_DIR, "../bgfx-gnm/examples/common/entry/entry_orbis.cpp") }) then
+
+		files {
+			path.join(BGFX_DIR, "../bgfx-gnm/examples/common/entry/entry_orbis.cpp"),
+		}
+	end
+
+	if filesexist(BGFX_DIR, path.join(BGFX_DIR, "../bgfx-nvn"),
+		{ path.join(BGFX_DIR, "../bgfx-gnm/examples/common/entry/entry_nx.cpp") }) then
+
+		files {
+			path.join(BGFX_DIR, "../bgfx-gnm/examples/common/entry/entry_nx.cpp"),
+		}
+	end
 
 	removefiles {
 		path.join(BGFX_DIR, "examples/common/example-glue.cpp"),
@@ -77,6 +93,12 @@ project ("example-common")
 	if _OPTIONS["with-glfw"] then
 		defines {
 			"ENTRY_CONFIG_USE_GLFW=1",
+		}
+	end
+
+	if _OPTIONS["with-wayland"] then
+		defines {
+			"ENTRY_CONFIG_USE_WAYLAND=1",
 		}
 	end
 
