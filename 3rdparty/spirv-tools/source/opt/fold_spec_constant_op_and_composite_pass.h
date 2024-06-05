@@ -54,28 +54,15 @@ class FoldSpecConstantOpAndCompositePass : public Pass {
   // it.
   bool ProcessOpSpecConstantOp(Module::inst_iterator* pos);
 
-  // Try to fold the OpSpecConstantOp CompositeExtract instruction pointed by
-  // the given instruction iterator to a normal constant defining instruction.
-  // Returns the pointer to the new constant defining instruction if succeeded.
-  // Otherwise returns nullptr.
-  Instruction* DoCompositeExtract(Module::inst_iterator* inst_iter_ptr);
-
-  // Try to fold the OpSpecConstantOp VectorShuffle instruction pointed by the
-  // given instruction iterator to a normal constant defining instruction.
-  // Returns the pointer to the new constant defining instruction if succeeded.
-  // Otherwise return nullptr.
-  Instruction* DoVectorShuffle(Module::inst_iterator* inst_iter_ptr);
+  // Returns the result of folding the OpSpecConstantOp instruction
+  // |inst_iter_ptr| using the instruction folder.
+  Instruction* FoldWithInstructionFolder(Module::inst_iterator* inst_iter_ptr);
 
   // Try to fold the OpSpecConstantOp <component wise operations> instruction
   // pointed by the given instruction iterator to a normal constant defining
   // instruction. Returns the pointer to the new constant defining instruction
   // if succeeded, otherwise return nullptr.
   Instruction* DoComponentWiseOperation(Module::inst_iterator* inst_iter_ptr);
-
-  // Returns the |element|'th subtype of |type|.
-  //
-  // |type| must be a composite type.
-  uint32_t GetTypeComponent(uint32_t type, uint32_t element) const;
 };
 
 }  // namespace opt

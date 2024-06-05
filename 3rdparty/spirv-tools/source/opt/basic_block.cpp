@@ -16,20 +16,16 @@
 
 #include <ostream>
 
-#include "source/opt/function.h"
 #include "source/opt/ir_context.h"
-#include "source/opt/module.h"
 #include "source/opt/reflect.h"
 #include "source/util/make_unique.h"
 
 namespace spvtools {
 namespace opt {
 namespace {
-
-const uint32_t kLoopMergeContinueBlockIdInIdx = 1;
-const uint32_t kLoopMergeMergeBlockIdInIdx = 0;
-const uint32_t kSelectionMergeMergeBlockIdInIdx = 0;
-
+constexpr uint32_t kLoopMergeContinueBlockIdInIdx = 1;
+constexpr uint32_t kLoopMergeMergeBlockIdInIdx = 0;
+constexpr uint32_t kSelectionMergeMergeBlockIdInIdx = 0;
 }  // namespace
 
 BasicBlock* BasicBlock::Clone(IRContext* context) const {
@@ -58,7 +54,7 @@ const Instruction* BasicBlock::GetMergeInst() const {
   if (iter != cbegin()) {
     --iter;
     const auto opcode = iter->opcode();
-    if (opcode == SpvOpLoopMerge || opcode == SpvOpSelectionMerge) {
+    if (opcode == spv::Op::OpLoopMerge || opcode == spv::Op::OpSelectionMerge) {
       result = &*iter;
     }
   }
@@ -73,7 +69,7 @@ Instruction* BasicBlock::GetMergeInst() {
   if (iter != begin()) {
     --iter;
     const auto opcode = iter->opcode();
-    if (opcode == SpvOpLoopMerge || opcode == SpvOpSelectionMerge) {
+    if (opcode == spv::Op::OpLoopMerge || opcode == spv::Op::OpSelectionMerge) {
       result = &*iter;
     }
   }
@@ -82,7 +78,7 @@ Instruction* BasicBlock::GetMergeInst() {
 
 const Instruction* BasicBlock::GetLoopMergeInst() const {
   if (auto* merge = GetMergeInst()) {
-    if (merge->opcode() == SpvOpLoopMerge) {
+    if (merge->opcode() == spv::Op::OpLoopMerge) {
       return merge;
     }
   }
@@ -91,7 +87,7 @@ const Instruction* BasicBlock::GetLoopMergeInst() const {
 
 Instruction* BasicBlock::GetLoopMergeInst() {
   if (auto* merge = GetMergeInst()) {
-    if (merge->opcode() == SpvOpLoopMerge) {
+    if (merge->opcode() == spv::Op::OpLoopMerge) {
       return merge;
     }
   }
@@ -100,7 +96,7 @@ Instruction* BasicBlock::GetLoopMergeInst() {
 
 void BasicBlock::KillAllInsts(bool killLabel) {
   ForEachInst([killLabel](Instruction* ip) {
-    if (killLabel || ip->opcode() != SpvOpLabel) {
+    if (killLabel || ip->opcode() != spv::Op::OpLabel) {
       ip->context()->KillInst(ip);
     }
   });
@@ -108,21 +104,29 @@ void BasicBlock::KillAllInsts(bool killLabel) {
 
 void BasicBlock::ForEachSuccessorLabel(
     const std::function<void(const uint32_t)>& f) const {
+  WhileEachSuccessorLabel([f](const uint32_t l) {
+    f(l);
+    return true;
+  });
+}
+
+bool BasicBlock::WhileEachSuccessorLabel(
+    const std::function<bool(const uint32_t)>& f) const {
   const auto br = &insts_.back();
   switch (br->opcode()) {
-    case SpvOpBranch: {
-      f(br->GetOperand(0).words[0]);
-    } break;
-    case SpvOpBranchConditional:
-    case SpvOpSwitch: {
+    case spv::Op::OpBranch:
+      return f(br->GetOperand(0).words[0]);
+    case spv::Op::OpBranchConditional:
+    case spv::Op::OpSwitch: {
       bool is_first = true;
-      br->ForEachInId([&is_first, &f](const uint32_t* idp) {
-        if (!is_first) f(*idp);
+      return br->WhileEachInId([&is_first, &f](const uint32_t* idp) {
+        if (!is_first) return f(*idp);
         is_first = false;
+        return true;
       });
-    } break;
+    }
     default:
-      break;
+      return true;
   }
 }
 
@@ -130,13 +134,13 @@ void BasicBlock::ForEachSuccessorLabel(
     const std::function<void(uint32_t*)>& f) {
   auto br = &insts_.back();
   switch (br->opcode()) {
-    case SpvOpBranch: {
+    case spv::Op::OpBranch: {
       uint32_t tmp_id = br->GetOperand(0).words[0];
       f(&tmp_id);
       if (tmp_id != br->GetOperand(0).words[0]) br->SetOperand(0, {tmp_id});
     } break;
-    case SpvOpBranchConditional:
-    case SpvOpSwitch: {
+    case spv::Op::OpBranchConditional:
+    case spv::Op::OpSwitch: {
       bool is_first = true;
       br->ForEachInId([&is_first, &f](uint32_t* idp) {
         if (!is_first) f(idp);
@@ -163,7 +167,8 @@ void BasicBlock::ForMergeAndContinueLabel(
   --ii;
   if (ii == insts_.begin()) return;
   --ii;
-  if (ii->opcode() == SpvOpSelectionMerge || ii->opcode() == SpvOpLoopMerge) {
+  if (ii->opcode() == spv::Op::OpSelectionMerge ||
+      ii->opcode() == spv::Op::OpLoopMerge) {
     ii->ForEachInId([&f](const uint32_t* idp) { f(*idp); });
   }
 }
@@ -174,13 +179,19 @@ uint32_t BasicBlock::MergeBlockIdIfAny() const {
   uint32_t mbid = 0;
   if (merge_ii != cbegin()) {
     --merge_ii;
-    if (merge_ii->opcode() == SpvOpLoopMerge) {
+    if (merge_ii->opcode() == spv::Op::OpLoopMerge) {
       mbid = merge_ii->GetSingleWordInOperand(kLoopMergeMergeBlockIdInIdx);
-    } else if (merge_ii->opcode() == SpvOpSelectionMerge) {
+    } else if (merge_ii->opcode() == spv::Op::OpSelectionMerge) {
       mbid = merge_ii->GetSingleWordInOperand(kSelectionMergeMergeBlockIdInIdx);
     }
   }
 
+  return mbid;
+}
+
+uint32_t BasicBlock::MergeBlockId() const {
+  uint32_t mbid = MergeBlockIdIfAny();
+  assert(mbid && "Expected block to have a corresponding merge block");
   return mbid;
 }
 
@@ -190,10 +201,16 @@ uint32_t BasicBlock::ContinueBlockIdIfAny() const {
   uint32_t cbid = 0;
   if (merge_ii != cbegin()) {
     --merge_ii;
-    if (merge_ii->opcode() == SpvOpLoopMerge) {
+    if (merge_ii->opcode() == spv::Op::OpLoopMerge) {
       cbid = merge_ii->GetSingleWordInOperand(kLoopMergeContinueBlockIdInIdx);
     }
   }
+  return cbid;
+}
+
+uint32_t BasicBlock::ContinueBlockId() const {
+  uint32_t cbid = ContinueBlockIdIfAny();
+  assert(cbid && "Expected block to have a corresponding continue target");
   return cbid;
 }
 
@@ -210,7 +227,7 @@ std::string BasicBlock::PrettyPrint(uint32_t options) const {
   std::ostringstream str;
   ForEachInst([&str, options](const Instruction* inst) {
     str << inst->PrettyPrint(options);
-    if (!IsTerminatorInst(inst->opcode())) {
+    if (!spvOpcodeIsBlockTerminator(inst->opcode())) {
       str << std::endl;
     }
   });
@@ -221,14 +238,15 @@ BasicBlock* BasicBlock::SplitBasicBlock(IRContext* context, uint32_t label_id,
                                         iterator iter) {
   assert(!insts_.empty());
 
-  std::unique_ptr<BasicBlock> new_block_temp =
-      MakeUnique<BasicBlock>(MakeUnique<Instruction>(
-          context, SpvOpLabel, 0, label_id, std::initializer_list<Operand>{}));
+  std::unique_ptr<BasicBlock> new_block_temp = MakeUnique<BasicBlock>(
+      MakeUnique<Instruction>(context, spv::Op::OpLabel, 0, label_id,
+                              std::initializer_list<Operand>{}));
   BasicBlock* new_block = new_block_temp.get();
   function_->InsertBasicBlockAfter(std::move(new_block_temp), this);
 
   new_block->insts_.Splice(new_block->end(), &insts_, iter, end());
-  new_block->SetParent(GetParent());
+  assert(new_block->GetParent() == GetParent() &&
+         "The parent should already be set appropriately.");
 
   context->AnalyzeDefUse(new_block->GetLabelInst());
 

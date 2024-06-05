@@ -15,7 +15,7 @@
 #ifndef SOURCE_REDUCE_STRUCTURED_LOOP_TO_SELECTION_REDUCTION_OPPORTUNITY_FINDER_H
 #define SOURCE_REDUCE_STRUCTURED_LOOP_TO_SELECTION_REDUCTION_OPPORTUNITY_FINDER_H
 
-#include "reduction_opportunity_finder.h"
+#include "source/reduce/reduction_opportunity_finder.h"
 
 namespace spvtools {
 namespace reduce {
@@ -46,7 +46,7 @@ class StructuredLoopToSelectionReductionOpportunityFinder
   std::string GetName() const final;
 
   std::vector<std::unique_ptr<ReductionOpportunity>> GetAvailableOpportunities(
-      opt::IRContext* context) const final;
+      opt::IRContext* context, uint32_t target_function) const final;
 
  private:
 };

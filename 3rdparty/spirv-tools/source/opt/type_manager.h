@@ -99,9 +99,10 @@ class TypeManager {
   //
   // |id| must be a registered type.
   std::pair<Type*, std::unique_ptr<Pointer>> GetTypeAndPointerType(
-      uint32_t id, SpvStorageClass sc) const;
+      uint32_t id, spv::StorageClass sc) const;
 
-  // Returns an id for a declaration representing |type|.
+  // Returns an id for a declaration representing |type|.  Returns 0 if the type
+  // does not exists, and could not be generated.
   //
   // If |type| is registered, then the registered id is returned. Otherwise,
   // this function recursively adds type and annotation instructions as
@@ -109,8 +110,9 @@ class TypeManager {
   uint32_t GetTypeInstruction(const Type* type);
 
   // Find pointer to type and storage in module, return its resultId.  If it is
-  // not found, a new type is created, and its id is returned.
-  uint32_t FindPointerToType(uint32_t type_id, SpvStorageClass storage_class);
+  // not found, a new type is created, and its id is returned.  Returns 0 if the
+  // type could not be created.
+  uint32_t FindPointerToType(uint32_t type_id, spv::StorageClass storage_class);
 
   // Registers |id| to |type|.
   //
@@ -118,6 +120,7 @@ class TypeManager {
   // unchanged.
   void RegisterType(uint32_t id, const Type& type);
 
+  // Return the registered type object that is the same as |type|.
   Type* GetRegisteredType(const Type* type);
 
   // Removes knowledge of |id| from the manager.
@@ -135,6 +138,79 @@ class TypeManager {
   // index, you can use 0 in that position.  All elements have the same type.
   const Type* GetMemberType(const Type* parent_type,
                             const std::vector<uint32_t>& access_chain);
+
+  // Attaches the decoration encoded in |inst| to |type|. Does nothing if the
+  // given instruction is not a decoration instruction. Assumes the target is
+  // |type| (e.g. should be called in loop of |type|'s decorations).
+  void AttachDecoration(const Instruction& inst, Type* type);
+
+  Type* GetUIntType() { return GetIntType(32, false); }
+
+  uint32_t GetUIntTypeId() { return GetTypeInstruction(GetUIntType()); }
+
+  Type* GetIntType(int32_t bitWidth, bool isSigned) {
+    Integer int_type(bitWidth, isSigned);
+    return GetRegisteredType(&int_type);
+  }
+
+  Type* GetSIntType() { return GetIntType(32, true); }
+
+  uint32_t GetSIntTypeId() { return GetTypeInstruction(GetSIntType()); }
+
+  Type* GetFloatType() {
+    Float float_type(32);
+    return GetRegisteredType(&float_type);
+  }
+
+  uint32_t GetFloatTypeId() { return GetTypeInstruction(GetFloatType()); }
+
+  Type* GetDoubleType() {
+    Float float_type(64);
+    return GetRegisteredType(&float_type);
+  }
+
+  uint32_t GetDoubleTypeId() { return GetTypeInstruction(GetDoubleType()); }
+
+  Type* GetUIntVectorType(uint32_t size) {
+    Vector vec_type(GetUIntType(), size);
+    return GetRegisteredType(&vec_type);
+  }
+
+  uint32_t GetUIntVectorTypeId(uint32_t size) {
+    return GetTypeInstruction(GetUIntVectorType(size));
+  }
+
+  Type* GetSIntVectorType(uint32_t size) {
+    Vector vec_type(GetSIntType(), size);
+    return GetRegisteredType(&vec_type);
+  }
+
+  uint32_t GetSIntVectorTypeId(uint32_t size) {
+    return GetTypeInstruction(GetSIntVectorType(size));
+  }
+
+  Type* GetFloatVectorType(uint32_t size) {
+    Vector vec_type(GetFloatType(), size);
+    return GetRegisteredType(&vec_type);
+  }
+
+  uint32_t GetFloatVectorTypeId(uint32_t size) {
+    return GetTypeInstruction(GetFloatVectorType(size));
+  }
+
+  Type* GetBoolType() {
+    Bool bool_type;
+    return GetRegisteredType(&bool_type);
+  }
+
+  uint32_t GetBoolTypeId() { return GetTypeInstruction(GetBoolType()); }
+
+  Type* GetVoidType() {
+    Void void_type;
+    return GetRegisteredType(&void_type);
+  }
+
+  uint32_t GetVoidTypeId() { return GetTypeInstruction(GetVoidType()); }
 
  private:
   using TypeToIdMap = std::unordered_map<const Type*, uint32_t, HashTypePointer,
@@ -171,24 +247,22 @@ class TypeManager {
 
   // Create the annotation instruction.
   //
-  // If |element| is zero, an OpDecorate is created, other an OpMemberDecorate
-  // is created. The annotation is registered with the DefUseManager and the
-  // DecorationManager.
+  // If |is_member| is false, an OpDecorate of |decoration| on |id| is created,
+  // otherwise an OpMemberDecorate is created at |element|. The annotation is
+  // registered with the DefUseManager and the DecorationManager.
   void CreateDecoration(uint32_t id, const std::vector<uint32_t>& decoration,
-                        uint32_t element = 0);
+                        bool is_member = false, uint32_t element = 0);
 
   // Creates and returns a type from the given SPIR-V |inst|. Returns nullptr if
   // the given instruction is not for defining a type.
   Type* RecordIfTypeDefinition(const Instruction& inst);
-  // Attaches the decoration encoded in |inst| to |type|. Does nothing if the
-  // given instruction is not a decoration instruction. Assumes the target is
-  // |type| (e.g. should be called in loop of |type|'s decorations).
-  void AttachDecoration(const Instruction& inst, Type* type);
 
   // Returns an equivalent pointer to |type| built in terms of pointers owned by
   // |type_pool_|. For example, if |type| is a vec3 of bool, it will be rebuilt
   // replacing the bool subtype with one owned by |type_pool_|.
-  Type* RebuildType(const Type& type);
+  //
+  // The re-built type will have ID |type_id|.
+  Type* RebuildType(uint32_t type_id, const Type& type);
 
   // Completes the incomplete type |type|, by replaces all references to
   // ForwardPointer by the defining Pointer.
@@ -209,6 +283,8 @@ class TypeManager {
 
   IdToTypeMap id_to_incomplete_type_;  // Maps ids to their type representations
                                        // for incomplete types.
+
+  std::unordered_map<uint32_t, const Instruction*> id_to_constant_inst_;
 };
 
 }  // namespace analysis

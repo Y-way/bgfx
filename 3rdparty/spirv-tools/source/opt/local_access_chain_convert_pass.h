@@ -64,7 +64,7 @@ class LocalAccessChainConvertPass : public MemPass {
 
   // Build instruction from |opcode|, |typeId|, |resultId|, and |in_opnds|.
   // Append to |newInsts|.
-  void BuildAndAppendInst(SpvOp opcode, uint32_t typeId, uint32_t resultId,
+  void BuildAndAppendInst(spv::Op opcode, uint32_t typeId, uint32_t resultId,
                           const std::vector<Operand>& in_opnds,
                           std::vector<std::unique_ptr<Instruction>>* newInsts);
 
@@ -81,21 +81,22 @@ class LocalAccessChainConvertPass : public MemPass {
                               std::vector<Operand>* in_opnds);
 
   // Create a load/insert/store equivalent to a store of
-  // |valId| through (constant index) access chaing |ptrInst|.
-  // Append to |newInsts|.
-  void GenAccessChainStoreReplacement(
+  // |valId| through (constant index) access chain |ptrInst|.
+  // Append to |newInsts|.  Returns true if successful.
+  bool GenAccessChainStoreReplacement(
       const Instruction* ptrInst, uint32_t valId,
       std::vector<std::unique_ptr<Instruction>>* newInsts);
 
   // For the (constant index) access chain |address_inst|, create an
   // equivalent load and extract that replaces |original_load|.  The result id
   // of the extract will be the same as the original result id of
-  // |original_load|.
-  void ReplaceAccessChainLoad(const Instruction* address_inst,
+  // |original_load|.  Returns true if successful.
+  bool ReplaceAccessChainLoad(const Instruction* address_inst,
                               Instruction* original_load);
 
-  // Return true if all indices of access chain |acp| are OpConstant integers
-  bool IsConstantIndexAccessChain(const Instruction* acp) const;
+  // Return true if all indices of the access chain |acp| are OpConstant
+  // integers whose signed values can be represented as unsigned 32-bit values.
+  bool Is32BitConstantIndexAccessChain(const Instruction* acp) const;
 
   // Identify all function scope variables of target type which are
   // accessed only with loads, stores and access chains with constant
@@ -106,9 +107,22 @@ class LocalAccessChainConvertPass : public MemPass {
   //
   // Nested access chains and pointer access chains are not currently
   // converted.
-  bool ConvertLocalAccessChains(Function* func);
+  //
+  // Returns a status to indicate success or failure, and change or no change.
+  Status ConvertLocalAccessChains(Function* func);
 
-  // Initialize extensions whitelist
+  // Returns true one of the indexes in the |access_chain_inst| is definitly out
+  // of bounds.  If the size of the type or the value of the index is unknown,
+  // then it will be considered in-bounds.
+  bool AnyIndexIsOutOfBounds(const Instruction* access_chain_inst);
+
+  // Returns true if getting element |index| from |type| would be out-of-bounds.
+  // If |index| is nullptr or the size of the type are unknown, then it will be
+  // considered in-bounds.
+  bool IsIndexOutOfBounds(const analysis::Constant* index,
+                          const analysis::Type* type) const;
+
+  // Initialize extensions allowlist
   void InitExtensions();
 
   // Return true if all extensions in this module are allowed by this pass.
@@ -122,7 +136,7 @@ class LocalAccessChainConvertPass : public MemPass {
   std::unordered_set<uint32_t> supported_ref_ptrs_;
 
   // Extensions supported by this pass.
-  std::unordered_set<std::string> extensions_whitelist_;
+  std::unordered_set<std::string> extensions_allowlist_;
 };
 
 }  // namespace opt

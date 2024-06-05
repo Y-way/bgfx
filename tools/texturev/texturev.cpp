@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include "common.h"
@@ -20,6 +20,7 @@
 #include <entry/entry.h>
 #include <entry/input.h>
 #include <entry/cmd.h>
+#include <entry/dialog.h>
 #include <imgui/imgui.h>
 #include <bgfx_utils.h>
 
@@ -239,213 +240,24 @@ static const char* s_filter = ""
 	"Truevision TGA (tga) | *.tga\n"
 	;
 
-struct FileSelectionDialogType
-{
-	enum Enum
-	{
-		Open,
-		Save,
-
-		Count
-	};
-};
-
 #if BX_PLATFORM_WINDOWS
+
 extern "C" void*    __stdcall GetModuleHandleA(const char* _moduleName);
 extern "C" uint32_t __stdcall GetModuleFileNameA(void* _module, char* _outFilePath, uint32_t _size);
 
-typedef uintptr_t (__stdcall *LPOFNHOOKPROC)(void*, uint32_t, uintptr_t, uint64_t);
-
-struct OPENFILENAMEA
-{
-	uint32_t      structSize;
-	void*         hwndOwner;
-	void*         hinstance;
-	const char*   filter;
-	const char*   customFilter;
-	uint32_t      maxCustomFilter;
-	uint32_t      filterIndex;
-	const char*   file;
-	uint32_t      maxFile;
-	const char*   fileTitle;
-	uint32_t      maxFileTitle;
-	const char*   initialDir;
-	const char*   title;
-	uint32_t      flags;
-	uint16_t      fileOffset;
-	uint16_t      fileExtension;
-	const char*   defExt;
-	uint64_t      customData;
-	LPOFNHOOKPROC hook;
-	const char*   templateName;
-	void*         reserved0;
-	uint32_t      reserved1;
-	uint32_t      flagsEx;
-};
-
-extern "C" bool __stdcall GetOpenFileNameA(OPENFILENAMEA* _ofn);
-
 #endif // BX_PLATFORM_WINDOWS
 
-class Split
+struct RendererTypeRemap
 {
-public:
-	Split(const bx::StringView& _str, char _ch)
-		: m_str(_str)
-		, m_token(_str.getPtr(), bx::strFind(_str, _ch).getPtr() )
-		, m_ch(_ch)
-	{
-	}
-
-	bx::StringView next()
-	{
-		bx::StringView result = m_token;
-		m_token = bx::strTrim(
-			  bx::StringView(m_token.getTerm()+1
-			, bx::strFind(bx::StringView(m_token.getTerm()+1, m_str.getTerm() ), m_ch).getPtr() )
-			, " \t\n"
-			);
-		return result;
-	}
-
-	bool isDone() const
-	{
-		return m_token.isEmpty();
-	}
-
-private:
-	const bx::StringView& m_str;
-	bx::StringView m_token;
-	char m_ch;
-}; 
-
-bool openFileSelectionDialog(
-	  bx::FilePath& _inOutFilePath
-	, FileSelectionDialogType::Enum _type
-	, const bx::StringView& _title
-	, const bx::StringView& _filter = "All Files | *"
-	)
-{
-#if BX_PLATFORM_LINUX || BX_PLATFORM_OSX
-	char tmp[4096];
-	bx::StaticMemoryBlockWriter writer(tmp, sizeof(tmp) );
-
-	bx::Error err;
-	bx::write(&writer, &err
-		, "--file-selection%s --title \"%.*s\" --filename \"%s\""
-		, FileSelectionDialogType::Save == _type ? " --save" : ""
-		, _title.getLength(),  _title.getPtr()
-		, _inOutFilePath.getCPtr()
-		);
-
-	for (bx::LineReader lr(_filter); !lr.isDone();)
-	{
-		const bx::StringView line = lr.next();
-
-		bx::write(&writer, &err
-			, " --file-filter \"%.*s\""
-			, line.getLength(), line.getPtr()
-			);
-	}
-
-	if (err.isOk() )
-	{
-		bx::ProcessReader pr;
-
-		if (bx::open(&pr, "zenity", tmp, &err) )
-		{
-			char buffer[1024];
-			int32_t total = bx::read(&pr, buffer, sizeof(buffer), &err);
-			bx::close(&pr);
-
-			if (0 == pr.getExitCode() )
-			{
-				_inOutFilePath.set(bx::strRTrim(bx::StringView(buffer, total), "\n\r") );
-				return true;
-			}
-		}
-	}
-#elif BX_PLATFORM_WINDOWS
-	BX_UNUSED(_type);
-
-	char out[bx::kMaxFilePath] = { '\0' };
-
-	OPENFILENAMEA ofn;
-	bx::memSet(&ofn, 0, sizeof(ofn) );
-	ofn.structSize = sizeof(OPENFILENAMEA);
-	ofn.initialDir = _inOutFilePath.getCPtr();
-	ofn.file       = out;
-	ofn.maxFile    = sizeof(out);
-	ofn.flags      = 0
-		| /* OFN_EXPLORER        */ 0x00080000
-		| /* OFN_FILEMUSTEXIST   */ 0x00001000
-		| /* OFN_DONTADDTORECENT */ 0x02000000
-		;
-
-	char tmp[4096];
-	bx::StaticMemoryBlockWriter writer(tmp, sizeof(tmp) );
-
-	bx::Error err;
-
-	ofn.title = tmp;
-	bx::write(&writer, &err, "%.*s", _title.getLength(),  _title.getPtr() );
-	bx::write(&writer, '\0', &err);
-
-	ofn.filter = tmp + uint32_t(bx::seek(&writer) );
-
-	for (bx::LineReader lr(_filter); !lr.isDone() && err.isOk();)
-	{
-		const bx::StringView line = lr.next();
-		const bx::StringView sep  = bx::strFind(line, '|');
-
-		if (!sep.isEmpty() )
-		{
-			bx::write(&writer, bx::strTrim(bx::StringView(line.getPtr(), sep.getPtr() ), " "), &err);
-			bx::write(&writer, '\0', &err);
-
-			bool first = true;
-
-			for (Split split(bx::strTrim(bx::StringView(sep.getPtr()+1, line.getTerm() ), " "), ' '); !split.isDone() && err.isOk();)
-			{
-				const bx::StringView token = split.next();
-				if (!first)
-				{
-					bx::write(&writer, ';', &err);
-				}
-
-				first = false;
-				bx::write(&writer, token, &err);
-			}
-
-			bx::write(&writer, '\0', &err);
-		}
-		else
-		{
-			bx::write(&writer, line, &err);
-			bx::write(&writer, '\0', &err);
-			bx::write(&writer, '\0', &err);
-		}	
-	}
-
-	bx::write(&writer, '\0', &err);
-
-	if (err.isOk()
-	&&  GetOpenFileNameA(&ofn) )
-	{
-		_inOutFilePath.set(ofn.file);
-		return true;
-	}
-#else
-	BX_UNUSED(_inOutFilePath, _type, _title, _filter);
-#endif // BX_PLATFORM_LINUX || BX_PLATFORM_OSX
-
-	return false;
-}
+	bx::StringView           name;
+	bgfx::RendererType::Enum type;
+};
 
 struct View
 {
 	View()
-		: m_cubeMapGeo(Geometry::Quad)
+		: m_rendererType(bgfx::RendererType::Count)
+		, m_cubeMapGeo(Geometry::Quad)
 		, m_outputFormat(Output::sRGB)
 		, m_fileIndex(0)
 		, m_scaleFn(0)
@@ -925,7 +737,9 @@ struct View
 					bool supported = false;
 					for (uint32_t ii = 0; ii < BX_COUNTOF(s_supportedExt); ++ii)
 					{
-						if (0 == bx::strCmpI(ext, s_supportedExt[ii]) )
+						const bx::StringView supportedExt(s_supportedExt[ii]);
+
+						if (0 == bx::strCmpI(bx::max(ext.getPtr(), ext.getTerm() - supportedExt.getLength() ), supportedExt) )
 						{
 							supported = true;
 							break;
@@ -977,7 +791,7 @@ struct View
 		bx::FileReader reader;
 		if (bx::open(&reader, filePath) )
 		{
-			bx::read(&reader, settings);
+			bx::read(&reader, settings, bx::ErrorAssert{});
 			bx::close(&reader);
 
 			if (!bx::fromString(&m_transitionTime, settings.get("view/transition") ) )
@@ -994,6 +808,8 @@ struct View
 			{
 				m_height = 720;
 			}
+
+			m_rendererType = getType(settings.get("view/renderer") );
 		}
 	}
 
@@ -1016,10 +832,15 @@ struct View
 			bx::toString(tmp, sizeof(tmp), m_height);
 			settings.set("view/height", tmp);
 
+			if (m_rendererType != bgfx::RendererType::Count)
+			{
+				settings.set("view/renderer", getName(m_rendererType) );
+			}
+
 			bx::FileWriter writer;
 			if (bx::open(&writer, filePath) )
 			{
-				bx::write(&writer, settings);
+				bx::write(&writer, settings, bx::ErrorAssert{});
 				bx::close(&writer);
 			}
 		}
@@ -1030,6 +851,7 @@ struct View
 	typedef stl::vector<std::string> FileList;
 	FileList m_fileList;
 
+	bgfx::RendererType::Enum m_rendererType;
 	bgfx::TextureInfo m_textureInfo;
 	Geometry::Enum m_cubeMapGeo;
 	Output::Enum m_outputFormat;
@@ -1081,7 +903,7 @@ struct PosUvwColorVertex
 
 	static void init()
 	{
-		ms_decl
+		ms_layout
 			.begin()
 			.add(bgfx::Attrib::Position,  2, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::TexCoord0, 3, bgfx::AttribType::Float)
@@ -1099,10 +921,10 @@ struct PosUvwColorVertex
 		m_abgr = _abgr;
 	}
 
-	static bgfx::VertexDecl ms_decl;
+	static bgfx::VertexLayout ms_layout;
 };
 
-bgfx::VertexDecl PosUvwColorVertex::ms_decl;
+bgfx::VertexLayout PosUvwColorVertex::ms_layout;
 
 static uint32_t addQuad(uint16_t* _indices, uint16_t _idx0, uint16_t _idx1, uint16_t _idx2, uint16_t _idx3)
 {
@@ -1130,10 +952,10 @@ void setGeometry(
 {
 	if (Geometry::Quad == _type)
 	{
-		if (6 == bgfx::getAvailTransientVertexBuffer(6, PosUvwColorVertex::ms_decl) )
+		if (6 == bgfx::getAvailTransientVertexBuffer(6, PosUvwColorVertex::ms_layout) )
 		{
 			bgfx::TransientVertexBuffer vb;
-			bgfx::allocTransientVertexBuffer(&vb, 6, PosUvwColorVertex::ms_decl);
+			bgfx::allocTransientVertexBuffer(&vb, 6, PosUvwColorVertex::ms_layout);
 			PosUvwColorVertex* vertex = (PosUvwColorVertex*)vb.data;
 
 			const float widthf  = float(_width);
@@ -1164,10 +986,10 @@ void setGeometry(
 	{
 		const uint32_t numVertices = 14;
 		const uint32_t numIndices  = 36;
-		if (checkAvailTransientBuffers(numVertices, PosUvwColorVertex::ms_decl, numIndices) )
+		if (checkAvailTransientBuffers(numVertices, PosUvwColorVertex::ms_layout, numIndices) )
 		{
 			bgfx::TransientVertexBuffer tvb;
-			bgfx::allocTransientVertexBuffer(&tvb, numVertices, PosUvwColorVertex::ms_decl);
+			bgfx::allocTransientVertexBuffer(&tvb, numVertices, PosUvwColorVertex::ms_layout);
 
 			bgfx::TransientIndexBuffer tib;
 			bgfx::allocTransientIndexBuffer(&tib, numIndices);
@@ -1266,7 +1088,7 @@ struct InterpolatorT
 	{
 		from     = _value;
 		to       = _value;
-		duration = 0.0;
+		duration = 0.0f;
 		offset   = bx::getHPCounter();
 	}
 
@@ -1288,7 +1110,7 @@ struct InterpolatorT
 			const double freq = double(bx::getHPFrequency() );
 			int64_t now = bx::getHPCounter();
 			float time = (float)(double(now - offset) / freq);
-			float lerp = bx::clamp(time, 0.0f, duration) / duration;
+			float lerp = duration != 0.0f ? bx::clamp(time, 0.0f, duration) / duration : 0.0f;
 			return lerpT(from, to, easeT(lerp) );
 		}
 
@@ -1297,11 +1119,16 @@ struct InterpolatorT
 
 	bool isActive() const
 	{
-		const double freq = double(bx::getHPFrequency() );
-		int64_t now = bx::getHPCounter();
-		float time = (float)(double(now - offset) / freq);
-		float lerp = bx::clamp(time, 0.0f, duration) / duration;
-		return lerp < 1.0f;
+		if (0.0f < duration)
+		{
+			const double freq = double(bx::getHPFrequency() );
+			int64_t now = bx::getHPCounter();
+			float time = (float)(double(now - offset) / freq);
+			float lerp = bx::clamp(time, 0.0f, duration) / duration;
+			return lerp < 1.0f;
+		}
+
+		return false;
 	}
 };
 
@@ -1311,9 +1138,24 @@ typedef InterpolatorT<bx::lerp,      bx::easeLinear>     InterpolatorLinear;
 
 void keyBindingHelp(const char* _bindings, const char* _description)
 {
-	ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), _bindings);
+	ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "%s", _bindings);
 	ImGui::SameLine(100);
-	ImGui::Text(_description);
+	ImGui::Text("%s", _description);
+}
+
+inline std::string replaceAll(const char* _str, const char* _from, const char* _to)
+{
+	std::string str = _str;
+	size_t startPos = 0;
+	const size_t fromLen = bx::strLen(_from);
+	const size_t toLen   = bx::strLen(_to);
+	while ( (startPos = str.find(_from, startPos) ) != std::string::npos)
+	{
+		str.replace(startPos, fromLen, _to);
+		startPos += toLen;
+	}
+
+	return str;
 }
 
 void associate()
@@ -1324,7 +1166,7 @@ void associate()
 	char exec[bx::kMaxFilePath];
 	GetModuleFileNameA(GetModuleHandleA(NULL), exec, sizeof(exec) );
 
-	std::string strExec = bx::replaceAll<std::string>(exec, "\\", "\\\\");
+	std::string strExec = replaceAll(exec, "\\", "\\\\");
 
 	std::string value;
 	bx::stringPrintf(value, "@=\"\\\"%s\\\" \\\"%%1\\\"\"\r\n\r\n", strExec.c_str() );
@@ -1371,34 +1213,60 @@ void associate()
 		}
 	}
 #elif BX_PLATFORM_LINUX
-	std::string str;
-	str += "#/bin/bash\n\n";
+
+	std::string mimeType;
+
+	auto associate = [&mimeType](const char* _ext)
+	{
+		std::string tmp;
+		bx::stringPrintf(tmp, "default texturev.desktop image/%s", _ext);
+
+		bx::ProcessReader reader;
+		bx::Error err;
+		if (bx::open(&reader, "xdg-mime", tmp.c_str(), &err) )
+		{
+			bx::close(&reader);
+		}
+		else
+		{
+			bx::printf("Failed to associate MIME type image/%s (error: \"%S\")!\n", _ext, &err.getMessage() );
+		}
+
+		bx::stringPrintf(mimeType, "image/%s;", _ext);
+	};
 
 	for (uint32_t ii = 0; ii < BX_COUNTOF(s_supportedExt); ++ii)
 	{
-		const char* ext = s_supportedExt[ii];
-		bx::stringPrintf(str, "xdg-mime default texturev.desktop image/%s\n", ext);
+		associate(s_supportedExt[ii]);
 	}
 
-	bx::stringPrintf(str, "xdg-mime default texturev.desktop image/x-dds\n");
-
-	str += "\n";
+	associate("x-dds");
 
 	bx::FileWriter writer;
 	bx::Error err;
-	if (bx::open(&writer, "/tmp/texturev.sh", false, &err) )
+	if (bx::open(&writer, "/usr/share/applications/texturev.desktop", false, &err) )
 	{
-		bx::write(&writer, str.c_str(), uint32_t(str.length()), &err);
+		bx::write(&writer, &err
+			, "[Desktop Entry]\n"
+			  "Version=%d.%d.%d\n"
+			  "Type=Application\n"
+			  "Name=texturev\n"
+			  "GenericName=bgfx Image/Texture Viewer\n"
+			  "Exec=texturev %%U\n"
+			  "Terminal=false\n"
+			  "Categories=Graphics\n"
+			  "StartupNotify=true\n"
+			  "MimeType=%s\n"
+			, BGFX_TEXTUREV_VERSION_MAJOR
+			, BGFX_TEXTUREV_VERSION_MINOR
+			, BGFX_API_VERSION
+			, mimeType.c_str()
+			);
 		bx::close(&writer);
-
-		if (err.isOk() )
-		{
-			bx::ProcessReader reader;
-			if (bx::open(&reader, "/bin/bash", "/tmp/texturev.sh", &err) )
-			{
-				bx::close(&reader);
-			}
-		}
+	}
+	else
+	{
+		bx::printf("Failed to create texturev desktop entry (error: \"%S\")! Permissions (try sudo)?!\n", &err.getMessage() );
 	}
 #endif // BX_PLATFORM_WINDOWS
 }
@@ -1407,31 +1275,31 @@ void help(const char* _error = NULL)
 {
 	if (NULL != _error)
 	{
-		fprintf(stderr, "Error:\n%s\n\n", _error);
+		bx::printf("Error:\n%s\n\n", _error);
 	}
 
-	fprintf(stderr
-		, "texturev, bgfx texture viewer tool, version %d.%d.%d.\n"
-		  "Copyright 2011-2019 Branimir Karadzic. All rights reserved.\n"
-		  "License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause\n\n"
+	bx::printf(
+		  "texturev, bgfx texture viewer tool, version %d.%d.%d.\n"
+		  "Copyright 2011-2024 Branimir Karadzic. All rights reserved.\n"
+		  "License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE\n\n"
 		, BGFX_TEXTUREV_VERSION_MAJOR
 		, BGFX_TEXTUREV_VERSION_MINOR
 		, BGFX_API_VERSION
 		);
 
-	fprintf(stderr
-		, "Usage: texturev <file path>\n"
+	bx::printf(
+		  "Usage: texturev <file path>\n"
 		  "\n"
 		  "Supported input file types:\n"
 		  );
 
 	for (uint32_t ii = 0; ii < BX_COUNTOF(s_supportedExt); ++ii)
 	{
-		fprintf(stderr, "    *.%s\n", s_supportedExt[ii]);
+		bx::printf("    *.%s\n", s_supportedExt[ii]);
 	}
 
-	fprintf(stderr
-		, "\n"
+	bx::printf(
+		  "\n"
 		  "Options:\n"
 		  "  -h, --help               Help.\n"
 		  "  -v, --version            Version information only.\n"
@@ -1447,8 +1315,8 @@ int _main_(int _argc, char** _argv)
 
 	if (cmdLine.hasArg('v', "version") )
 	{
-		fprintf(stderr
-			, "texturev, bgfx texture viewer tool, version %d.%d.%d.\n"
+		bx::printf(
+			  "texturev, bgfx texture viewer tool, version %d.%d.%d.\n"
 			, BGFX_TEXTUREV_VERSION_MAJOR
 			, BGFX_TEXTUREV_VERSION_MINOR
 			, BGFX_API_VERSION
@@ -1475,13 +1343,16 @@ int _main_(int _argc, char** _argv)
 	View view;
 	cmdAdd("view", cmdView, &view);
 
-	entry::setWindowFlags(entry::WindowHandle{0}, ENTRY_WINDOW_FLAG_ASPECT_RATIO, false);
-	entry::setWindowSize(entry::WindowHandle{0}, view.m_width, view.m_height);
+	entry::setWindowFlags(entry::kDefaultWindowHandle, ENTRY_WINDOW_FLAG_ASPECT_RATIO, false);
+	entry::setWindowSize(entry::kDefaultWindowHandle, view.m_width, view.m_height);
 
 	bgfx::Init init;
-	init.resolution.width = view.m_width;
-	init.resolution.width = view.m_height;
-	init.resolution.reset = BGFX_RESET_VSYNC;
+	init.type = view.m_rendererType;
+	init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+	init.platformData.ndt  = entry::getNativeDisplayHandle();
+	init.resolution.width  = view.m_width;
+	init.resolution.height = view.m_height;
+	init.resolution.reset  = BGFX_RESET_VSYNC;
 
 	bgfx::init(init);
 
@@ -1603,11 +1474,7 @@ int _main_(int _argc, char** _argv)
 
 	const char* filePath = _argc < 2 ? "" : _argv[1];
 
-	std::string path = filePath;
-	{
-		bx::FilePath fp(filePath);
-		view.updateFileList(fp);
-	}
+	view.updateFileList(filePath);
 
 	int exitcode = bx::kExitSuccess;
 	bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
@@ -1826,6 +1693,7 @@ int _main_(int _argc, char** _argv)
 					ImGui::Separator();
 					ImGui::TextColored(
 						  ImVec4(0.0f, 1.0f, 1.0f, 1.0f)
+						, "%s"
 						, view.m_fileList[view.m_fileIndex].c_str()
 						);
 
@@ -1999,11 +1867,15 @@ int _main_(int _argc, char** _argv)
 
 			if (view.m_files)
 			{
+				ImGui::PushFont(ImGui::Font::Mono);
+				const float itemHeight = ImGui::GetTextLineHeightWithSpacing();
+				ImGui::PopFont();
+
 				char temp[bx::kMaxFilePath];
 				bx::snprintf(temp, BX_COUNTOF(temp), "%s##File", view.m_path.getCPtr() );
 
 				ImGui::SetNextWindowSize(
-					  ImVec2(400.0f, 400.0f)
+					  ImVec2(400.0f, 20*itemHeight)
 					, ImGuiCond_FirstUseEver
 					);
 
@@ -2012,48 +1884,55 @@ int _main_(int _argc, char** _argv)
 					if (ImGui::BeginChild("##file_list", ImVec2(0.0f, 0.0f) ) )
 					{
 						ImGui::PushFont(ImGui::Font::Mono);
-						const float itemHeight = ImGui::GetTextLineHeightWithSpacing();
 						const float listHeight =
 							  bx::max(1.0f, bx::floor(ImGui::GetWindowHeight()/itemHeight) )
 							* itemHeight
 							;
 
 						ImGui::PushItemWidth(-1);
-						if (ImGui::ListBoxHeader("##empty", ImVec2(0.0f, listHeight) ) )
+						if (ImGui::BeginListBox("##empty", ImVec2(0.0f, listHeight) ) )
 						{
 							const int32_t itemCount = int32_t(view.m_fileList.size() );
 
-							int32_t start, end;
-							ImGui::CalcListClipping(itemCount, itemHeight, &start, &end);
+							ImGuiListClipper clipper;
+							clipper.Begin(itemCount, itemHeight);
 
-							const int32_t index = int32_t(view.m_fileIndex);
-							if (index <= start)
+							const  int32_t index = int32_t(view.m_fileIndex);
+							static int32_t oldIndex  = index;
+							const  int32_t direction = bx::clamp(index - oldIndex, -1, 1);
+							oldIndex = index;
+
+							bool currentVisible = false;
+
+							while (clipper.Step() )
 							{
-								ImGui::SetScrollY(ImGui::GetScrollY() - (start-index+1)*itemHeight);
-							}
-							else if (index >= end)
-							{
-								ImGui::SetScrollY(ImGui::GetScrollY() + (index-end+1)*itemHeight);
-							}
+								currentVisible |= index > clipper.DisplayStart && index < clipper.DisplayEnd;
 
-							ImGuiListClipper clipper(itemCount, itemHeight);
-
-							for (int32_t pos = clipper.DisplayStart; pos < clipper.DisplayEnd; ++pos)
-							{
-								ImGui::PushID(pos);
-
-								bool isSelected = uint32_t(pos) == view.m_fileIndex;
-								if (ImGui::Selectable(view.m_fileList[pos].c_str(), &isSelected) )
+								for (int32_t pos = clipper.DisplayStart; pos < clipper.DisplayEnd; ++pos)
 								{
-									view.m_fileIndex = pos;
-								}
+									ImGui::PushID(pos);
 
-								ImGui::PopID();
+									bool isSelected = pos == index;
+
+									if (ImGui::Selectable(view.m_fileList[pos].c_str(), &isSelected) )
+									{
+										view.m_fileIndex = pos;
+									}
+
+									ImGui::PopID();
+								}
+							}
+
+							if (0 != direction && !currentVisible)
+							{
+								const int32_t num  = int32_t(listHeight / itemHeight);
+								const int32_t posY = index + (1 == direction ? 1-num : 0);
+								ImGui::SetScrollY(posY*itemHeight);
 							}
 
 							clipper.End();
 
-							ImGui::ListBoxFooter();
+							ImGui::EndListBox();
 						}
 
 						ImGui::PopFont();
@@ -2070,8 +1949,8 @@ int _main_(int _argc, char** _argv)
 
 				ImGui::Text(
 					"texturev, bgfx texture viewer tool " ICON_KI_WRENCH ", version %d.%d.%d.\n"
-					"Copyright 2011-2019 Branimir Karadzic. All rights reserved.\n"
-					"License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause\n"
+					"Copyright 2011-2024 Branimir Karadzic. All rights reserved.\n"
+					"License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE\n"
 					, BGFX_TEXTUREV_VERSION_MAJOR
 					, BGFX_TEXTUREV_VERSION_MINOR
 					, BGFX_API_VERSION
@@ -2222,8 +2101,7 @@ int _main_(int _argc, char** _argv)
 					bx::stringPrintf(title, "Failed to load %s!", filePath);
 				}
 
-				entry::WindowHandle handle = { 0 };
-				entry::setWindowTitle(handle, title.c_str() );
+				entry::setWindowTitle(entry::kDefaultWindowHandle, title.c_str() );
 			}
 
 			int64_t now = bx::getHPCounter();

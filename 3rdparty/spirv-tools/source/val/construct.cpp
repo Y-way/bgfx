@@ -16,9 +16,9 @@
 
 #include <cassert>
 #include <cstddef>
-#include <unordered_set>
 
 #include "source/val/function.h"
+#include "source/val/validation_state.h"
 
 namespace spvtools {
 namespace val {
@@ -69,55 +69,45 @@ BasicBlock* Construct::exit_block() { return exit_block_; }
 
 void Construct::set_exit(BasicBlock* block) { exit_block_ = block; }
 
-Construct::ConstructBlockSet Construct::blocks(Function* function) const {
-  auto header = entry_block();
-  auto merge = exit_block();
-  assert(header);
-  assert(merge);
-  int header_depth = function->GetBlockDepth(const_cast<BasicBlock*>(header));
-  ConstructBlockSet construct_blocks;
-  std::unordered_set<BasicBlock*> corresponding_headers;
-  for (auto& other : corresponding_constructs()) {
-    corresponding_headers.insert(other->entry_block());
+Construct::ConstructBlockSet Construct::blocks(Function* /*function*/) const {
+  const auto header = entry_block();
+  const auto exit = exit_block();
+  const bool is_continue = type() == ConstructType::kContinue;
+  const bool is_loop = type() == ConstructType::kLoop;
+  const BasicBlock* continue_header = nullptr;
+  if (is_loop) {
+    // The only corresponding construct for a loop is the continue.
+    continue_header = (*corresponding_constructs().begin())->entry_block();
   }
   std::vector<BasicBlock*> stack;
   stack.push_back(const_cast<BasicBlock*>(header));
+  ConstructBlockSet construct_blocks;
   while (!stack.empty()) {
-    BasicBlock* block = stack.back();
+    auto* block = stack.back();
     stack.pop_back();
 
-    if (merge == block && ExitBlockIsMergeBlock()) {
-      // Merge block is not part of the construct.
-      continue;
-    }
+    if (header->structurally_dominates(*block)) {
+      bool include = false;
+      if (is_continue && exit->structurally_postdominates(*block)) {
+        // Continue construct include blocks dominated by the continue target
+        // and post-dominated by the back-edge block.
+        include = true;
+      } else if (!exit->structurally_dominates(*block)) {
+        // Selection and loop constructs include blocks dominated by the header
+        // and not dominated by the merge.
+        include = true;
+        if (is_loop && continue_header->structurally_dominates(*block)) {
+          // Loop constructs have an additional constraint that they do not
+          // include blocks dominated by the continue construct. Since all
+          // blocks in the continue construct are dominated by the continue
+          // target, we just test for dominance by continue target.
+          include = false;
+        }
+      }
+      if (include) {
+        if (!construct_blocks.insert(block).second) continue;
 
-    if (corresponding_headers.count(block)) {
-      // Entered a corresponding construct.
-      continue;
-    }
-
-    int block_depth = function->GetBlockDepth(block);
-    if (block_depth < header_depth) {
-      // Broke to outer construct.
-      continue;
-    }
-
-    // In a loop, the continue target is at a depth of the loop construct + 1.
-    // A selection construct nested directly within the loop construct is also
-    // at the same depth. It is valid, however, to branch directly to the
-    // continue target from within the selection construct.
-    if (block_depth == header_depth && type() == ConstructType::kSelection &&
-        block->is_type(kBlockTypeContinue)) {
-      // Continued to outer construct.
-      continue;
-    }
-
-    if (!construct_blocks.insert(block).second) continue;
-
-    if (merge != block) {
-      for (auto succ : *block->successors()) {
-        // All blocks in the construct must be dominated by the header.
-        if (header->dominates(*succ)) {
+        for (auto succ : *block->structural_successors()) {
           stack.push_back(succ);
         }
       }
@@ -125,6 +115,107 @@ Construct::ConstructBlockSet Construct::blocks(Function* function) const {
   }
 
   return construct_blocks;
+}
+
+bool Construct::IsStructuredExit(ValidationState_t& _, BasicBlock* dest) const {
+  // Structured Exits:
+  // - Selection:
+  //  - branch to its merge
+  //  - branch to nearest enclosing loop merge or continue
+  //  - branch to nearest enclosing switch selection merge
+  // - Loop:
+  //  - branch to its merge
+  //  - branch to its continue
+  // - Continue:
+  //  - branch to loop header
+  //  - branch to loop merge
+  //
+  // Note: we will never see a case construct here.
+  assert(type() != ConstructType::kCase);
+  if (type() == ConstructType::kLoop) {
+    auto header = entry_block();
+    auto terminator = header->terminator();
+    auto index = terminator - &_.ordered_instructions()[0];
+    auto merge_inst = &_.ordered_instructions()[index - 1];
+    auto merge_block_id = merge_inst->GetOperandAs<uint32_t>(0u);
+    auto continue_block_id = merge_inst->GetOperandAs<uint32_t>(1u);
+    if (dest->id() == merge_block_id || dest->id() == continue_block_id) {
+      return true;
+    }
+  } else if (type() == ConstructType::kContinue) {
+    auto loop_construct = corresponding_constructs()[0];
+    auto header = loop_construct->entry_block();
+    auto terminator = header->terminator();
+    auto index = terminator - &_.ordered_instructions()[0];
+    auto merge_inst = &_.ordered_instructions()[index - 1];
+    auto merge_block_id = merge_inst->GetOperandAs<uint32_t>(0u);
+    if (dest == header || dest->id() == merge_block_id) {
+      return true;
+    }
+  } else {
+    assert(type() == ConstructType::kSelection);
+    if (dest == exit_block()) {
+      return true;
+    }
+
+    // The next block in the traversal is either:
+    //  i.  The header block that declares |block| as its merge block.
+    //  ii. The immediate dominator of |block|.
+    auto NextBlock = [](const BasicBlock* block) -> const BasicBlock* {
+      for (auto& use : block->label()->uses()) {
+        if ((use.first->opcode() == spv::Op::OpLoopMerge ||
+             use.first->opcode() == spv::Op::OpSelectionMerge) &&
+            use.second == 1 &&
+            use.first->block()->structurally_dominates(*block) &&
+            // A header likely declared itself as its merge.
+            use.first->block() != block) {
+          return use.first->block();
+        }
+      }
+      return block->immediate_structural_dominator();
+    };
+
+    bool seen_switch = false;
+    auto header = entry_block();
+    auto block = NextBlock(header);
+    while (block) {
+      auto terminator = block->terminator();
+      auto index = terminator - &_.ordered_instructions()[0];
+      auto merge_inst = &_.ordered_instructions()[index - 1];
+      if (merge_inst->opcode() == spv::Op::OpLoopMerge ||
+          (header->terminator()->opcode() != spv::Op::OpSwitch &&
+           merge_inst->opcode() == spv::Op::OpSelectionMerge &&
+           terminator->opcode() == spv::Op::OpSwitch)) {
+        auto merge_target = merge_inst->GetOperandAs<uint32_t>(0u);
+        auto merge_block = merge_inst->function()->GetBlock(merge_target).first;
+        if (merge_block->structurally_dominates(*header)) {
+          block = NextBlock(block);
+          continue;
+        }
+
+        if ((!seen_switch || merge_inst->opcode() == spv::Op::OpLoopMerge) &&
+            dest->id() == merge_target) {
+          return true;
+        } else if (merge_inst->opcode() == spv::Op::OpLoopMerge) {
+          auto continue_target = merge_inst->GetOperandAs<uint32_t>(1u);
+          if (dest->id() == continue_target) {
+            return true;
+          }
+        }
+
+        if (terminator->opcode() == spv::Op::OpSwitch) {
+          seen_switch = true;
+        }
+
+        // Hit an enclosing loop and didn't break or continue.
+        if (merge_inst->opcode() == spv::Op::OpLoopMerge) return false;
+      }
+
+      block = NextBlock(block);
+    }
+  }
+
+  return false;
 }
 
 }  // namespace val

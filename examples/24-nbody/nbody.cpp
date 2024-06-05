@@ -1,6 +1,6 @@
 /*
 * Copyright 2014 Stanlo Slasinski. All rights reserved.
-* License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+* License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
 */
 
 #include "common.h"
@@ -113,8 +113,8 @@ const uint32_t kMaxParticleCount      = 32 * 1024;
 class ExampleNbody : public entry::AppI
 {
 public:
-	ExampleNbody(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExampleNbody(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -130,6 +130,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
@@ -154,8 +157,8 @@ public:
 
 		if (m_computeSupported)
 		{
-			bgfx::VertexDecl quadVertexDecl;
-			quadVertexDecl.begin()
+			bgfx::VertexLayout quadVertexLayout;
+			quadVertexLayout.begin()
 				.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
 				.end();
 
@@ -163,7 +166,7 @@ public:
 			m_vbh = bgfx::createVertexBuffer(
 				// Static data can be passed with bgfx::makeRef
 				bgfx::makeRef(s_quadVertices, sizeof(s_quadVertices) )
-				, quadVertexDecl
+				, quadVertexLayout
 				);
 
 			// Create static index buffer.
@@ -176,15 +179,15 @@ public:
 			m_particleProgram = loadProgram("vs_particle", "fs_particle");
 
 			// Setup compute buffers
-			bgfx::VertexDecl computeVertexDecl;
-			computeVertexDecl.begin()
+			bgfx::VertexLayout computeVertexLayout;
+			computeVertexLayout.begin()
 				.add(bgfx::Attrib::TexCoord0, 4, bgfx::AttribType::Float)
 				.end();
 
-			m_currPositionBuffer0 = bgfx::createDynamicVertexBuffer(1 << 15, computeVertexDecl, BGFX_BUFFER_COMPUTE_READ_WRITE);
-			m_currPositionBuffer1 = bgfx::createDynamicVertexBuffer(1 << 15, computeVertexDecl, BGFX_BUFFER_COMPUTE_READ_WRITE);
-			m_prevPositionBuffer0 = bgfx::createDynamicVertexBuffer(1 << 15, computeVertexDecl, BGFX_BUFFER_COMPUTE_READ_WRITE);
-			m_prevPositionBuffer1 = bgfx::createDynamicVertexBuffer(1 << 15, computeVertexDecl, BGFX_BUFFER_COMPUTE_READ_WRITE);
+			m_currPositionBuffer0 = bgfx::createDynamicVertexBuffer(1 << 15, computeVertexLayout, BGFX_BUFFER_COMPUTE_READ_WRITE);
+			m_currPositionBuffer1 = bgfx::createDynamicVertexBuffer(1 << 15, computeVertexLayout, BGFX_BUFFER_COMPUTE_READ_WRITE);
+			m_prevPositionBuffer0 = bgfx::createDynamicVertexBuffer(1 << 15, computeVertexLayout, BGFX_BUFFER_COMPUTE_READ_WRITE);
+			m_prevPositionBuffer1 = bgfx::createDynamicVertexBuffer(1 << 15, computeVertexLayout, BGFX_BUFFER_COMPUTE_READ_WRITE);
 
 			u_params = bgfx::createUniform("u_params", bgfx::UniformType::Vec4, 3);
 
@@ -368,7 +371,7 @@ public:
 				bx::swap(m_prevPositionBuffer0, m_prevPositionBuffer1);
 
 				// Update camera.
-				cameraUpdate(deltaTime, m_mouseState);
+				cameraUpdate(deltaTime, m_mouseState, ImGui::MouseOverArea() );
 
 				float view[16];
 				cameraGetViewMtx(view);
@@ -458,4 +461,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExampleNbody, "24-nbody", "N-body simulation with compute shaders using buffers.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExampleNbody
+	, "24-nbody"
+	, "N-body simulation with compute shaders using buffers."
+	, "https://bkaradzic.github.io/bgfx/examples.html#nbody"
+	);

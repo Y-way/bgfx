@@ -1,4 +1,6 @@
-// Copyright (c) 2015-2016 The Khronos Group Inc.
+// Copyright (c) 2015-2020 The Khronos Group Inc.
+// Modifications Copyright (C) 2020 Advanced Micro Devices, Inc. All rights
+// reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,11 +18,14 @@
 
 #include <assert.h>
 #include <string.h>
+
 #include <algorithm>
 
+#include "DebugInfo.h"
+#include "OpenCLDebugInfo100.h"
 #include "source/macro.h"
+#include "source/opcode.h"
 #include "source/spirv_constant.h"
-#include "source/spirv_target_env.h"
 
 // For now, assume unified1 contains up to SPIR-V 1.3 and no later
 // SPIR-V version.
@@ -28,6 +33,7 @@
 // per-item basis. https://github.com/KhronosGroup/SPIRV-Tools/issues/1195
 
 #include "operand.kinds-unified1.inc"
+#include "spirv-tools/libspirv.h"
 
 static const spv_operand_table_t kOperandTable = {
     ARRAY_SIZE(pygen_variable_OperandInfoTable),
@@ -41,7 +47,7 @@ spv_result_t spvOperandTableGet(spv_operand_table* pOperandTable,
   return SPV_SUCCESS;
 }
 
-spv_result_t spvOperandTableNameLookup(spv_target_env env,
+spv_result_t spvOperandTableNameLookup(spv_target_env,
                                        const spv_operand_table table,
                                        const spv_operand_type_t type,
                                        const char* name,
@@ -56,17 +62,9 @@ spv_result_t spvOperandTableNameLookup(spv_target_env env,
     for (uint64_t index = 0; index < group.count; ++index) {
       const auto& entry = group.entries[index];
       // We consider the current operand as available as long as
-      // 1. The target environment satisfies the minimal requirement of the
-      //    operand; or
-      // 2. There is at least one extension enabling this operand; or
-      // 3. There is at least one capability enabling this operand.
-      //
-      // Note that the second rule assumes the extension enabling this operand
-      // is indeed requested in the SPIR-V code; checking that should be
-      // validator's work.
-      if ((spvVersionForTargetEnv(env) >= entry.minVersion ||
-           entry.numExtensions > 0u || entry.numCapabilities > 0u) &&
-          nameLength == strlen(entry.name) &&
+      // it is in the grammar.  It might not be *valid* to use,
+      // but that should be checked by the validator, not by parsing.
+      if (nameLength == strlen(entry.name) &&
           !strncmp(entry.name, name, nameLength)) {
         *pEntry = &entry;
         return SPV_SUCCESS;
@@ -77,7 +75,7 @@ spv_result_t spvOperandTableNameLookup(spv_target_env env,
   return SPV_ERROR_INVALID_LOOKUP;
 }
 
-spv_result_t spvOperandTableValueLookup(spv_target_env env,
+spv_result_t spvOperandTableValueLookup(spv_target_env,
                                         const spv_operand_table table,
                                         const spv_operand_type_t type,
                                         const uint32_t value,
@@ -85,7 +83,7 @@ spv_result_t spvOperandTableValueLookup(spv_target_env env,
   if (!table) return SPV_ERROR_INVALID_TABLE;
   if (!pEntry) return SPV_ERROR_INVALID_POINTER;
 
-  spv_operand_desc_t needle = {"", value, 0, nullptr, 0, nullptr, {}, ~0u};
+  spv_operand_desc_t needle = {"", value, 0, nullptr, 0, nullptr, {}, ~0u, ~0u};
 
   auto comp = [](const spv_operand_desc_t& lhs, const spv_operand_desc_t& rhs) {
     return lhs.value < rhs.value;
@@ -98,32 +96,15 @@ spv_result_t spvOperandTableValueLookup(spv_target_env env,
     const auto beg = group.entries;
     const auto end = group.entries + group.count;
 
-    // We need to loop here because there can exist multiple symbols for the
-    // same operand value, and they can be introduced in different target
-    // environments, which means they can have different minimal version
-    // requirements. For example, SubgroupEqMaskKHR can exist in any SPIR-V
-    // version as long as the SPV_KHR_shader_ballot extension is there; but
-    // starting from SPIR-V 1.3, SubgroupEqMask, which has the same numeric
-    // value as SubgroupEqMaskKHR, is available in core SPIR-V without extension
-    // requirements.
     // Assumes the underlying table is already sorted ascendingly according to
     // opcode value.
-    for (auto it = std::lower_bound(beg, end, needle, comp);
-         it != end && it->value == value; ++it) {
-      // We consider the current operand as available as long as
-      // 1. The target environment satisfies the minimal requirement of the
-      //    operand; or
-      // 2. There is at least one extension enabling this operand; or
-      // 3. There is at least one capability enabling this operand.
-      //
-      // Note that the second rule assumes the extension enabling this operand
-      // is indeed requested in the SPIR-V code; checking that should be
-      // validator's work.
-      if (spvVersionForTargetEnv(env) >= it->minVersion ||
-          it->numExtensions > 0u || it->numCapabilities > 0u) {
-        *pEntry = it;
-        return SPV_SUCCESS;
-      }
+    auto it = std::lower_bound(beg, end, needle, comp);
+    if (it != end && it->value == value) {
+      // The current operand is considered available as long as
+      // it is in the grammar.  It might not be *valid* to use,
+      // but that should be checked by the validator, not by parsing.
+      *pEntry = it;
+      return SPV_SUCCESS;
     }
   }
 
@@ -142,6 +123,7 @@ const char* spvOperandTypeStr(spv_operand_type_t type) {
     case SPV_OPERAND_TYPE_LITERAL_INTEGER:
     case SPV_OPERAND_TYPE_OPTIONAL_LITERAL_INTEGER:
     case SPV_OPERAND_TYPE_OPTIONAL_LITERAL_NUMBER:
+    case SPV_OPERAND_TYPE_LITERAL_FLOAT:
       return "literal number";
     case SPV_OPERAND_TYPE_OPTIONAL_TYPED_LITERAL_INTEGER:
       return "possibly multi-word literal integer";
@@ -200,6 +182,8 @@ const char* spvOperandTypeStr(spv_operand_type_t type) {
     case SPV_OPERAND_TYPE_MEMORY_ACCESS:
     case SPV_OPERAND_TYPE_OPTIONAL_MEMORY_ACCESS:
       return "memory access";
+    case SPV_OPERAND_TYPE_FRAGMENT_SHADING_RATE:
+      return "shading rate";
     case SPV_OPERAND_TYPE_SCOPE_ID:
       return "scope ID";
     case SPV_OPERAND_TYPE_GROUP_OPERATION:
@@ -210,6 +194,37 @@ const char* spvOperandTypeStr(spv_operand_type_t type) {
       return "kernel profiling info";
     case SPV_OPERAND_TYPE_CAPABILITY:
       return "capability";
+    case SPV_OPERAND_TYPE_RAY_FLAGS:
+      return "ray flags";
+    case SPV_OPERAND_TYPE_RAY_QUERY_INTERSECTION:
+      return "ray query intersection";
+    case SPV_OPERAND_TYPE_RAY_QUERY_COMMITTED_INTERSECTION_TYPE:
+      return "ray query committed intersection type";
+    case SPV_OPERAND_TYPE_RAY_QUERY_CANDIDATE_INTERSECTION_TYPE:
+      return "ray query candidate intersection type";
+    case SPV_OPERAND_TYPE_PACKED_VECTOR_FORMAT:
+    case SPV_OPERAND_TYPE_OPTIONAL_PACKED_VECTOR_FORMAT:
+      return "packed vector format";
+    case SPV_OPERAND_TYPE_COOPERATIVE_MATRIX_OPERANDS:
+    case SPV_OPERAND_TYPE_OPTIONAL_COOPERATIVE_MATRIX_OPERANDS:
+      return "cooperative matrix operands";
+    case SPV_OPERAND_TYPE_COOPERATIVE_MATRIX_LAYOUT:
+      return "cooperative matrix layout";
+    case SPV_OPERAND_TYPE_COOPERATIVE_MATRIX_USE:
+      return "cooperative matrix use";
+    case SPV_OPERAND_TYPE_INITIALIZATION_MODE_QUALIFIER:
+      return "initialization mode qualifier";
+    case SPV_OPERAND_TYPE_HOST_ACCESS_QUALIFIER:
+      return "host access qualifier";
+    case SPV_OPERAND_TYPE_LOAD_CACHE_CONTROL:
+      return "load cache control";
+    case SPV_OPERAND_TYPE_STORE_CACHE_CONTROL:
+      return "store cache control";
+    case SPV_OPERAND_TYPE_NAMED_MAXIMUM_NUMBER_OF_REGISTERS:
+      return "named maximum number of registers";
+    case SPV_OPERAND_TYPE_RAW_ACCESS_CHAIN_OPERANDS:
+    case SPV_OPERAND_TYPE_OPTIONAL_RAW_ACCESS_CHAIN_OPERANDS:
+      return "raw access chain operands";
     case SPV_OPERAND_TYPE_IMAGE:
     case SPV_OPERAND_TYPE_OPTIONAL_IMAGE:
       return "image";
@@ -225,6 +240,18 @@ const char* spvOperandTypeStr(spv_operand_type_t type) {
       return "debug type qualifier";
     case SPV_OPERAND_TYPE_DEBUG_OPERATION:
       return "debug operation";
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_INFO_FLAGS:
+      return "OpenCL.DebugInfo.100 debug info flags";
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_BASE_TYPE_ATTRIBUTE_ENCODING:
+      return "OpenCL.DebugInfo.100 debug base type encoding";
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_COMPOSITE_TYPE:
+      return "OpenCL.DebugInfo.100 debug composite type";
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_TYPE_QUALIFIER:
+      return "OpenCL.DebugInfo.100 debug type qualifier";
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_OPERATION:
+      return "OpenCL.DebugInfo.100 debug operation";
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_IMPORTED_ENTITY:
+      return "OpenCL.DebugInfo.100 debug imported entity";
 
     // The next values are for values returned from an instruction, not actually
     // an operand.  So the specific strings don't matter.  But let's add them
@@ -234,10 +261,18 @@ const char* spvOperandTypeStr(spv_operand_type_t type) {
     case SPV_OPERAND_TYPE_IMAGE_CHANNEL_DATA_TYPE:
       return "image channel data type";
 
+    case SPV_OPERAND_TYPE_FPDENORM_MODE:
+      return "FP denorm mode";
+    case SPV_OPERAND_TYPE_FPOPERATION_MODE:
+      return "FP operation mode";
+    case SPV_OPERAND_TYPE_QUANTIZATION_MODES:
+      return "quantization mode";
+    case SPV_OPERAND_TYPE_OVERFLOW_MODES:
+      return "overflow mode";
+
     case SPV_OPERAND_TYPE_NONE:
       return "NONE";
     default:
-      assert(0 && "Unhandled operand type!");
       break;
   }
   return "unknown";
@@ -279,6 +314,7 @@ bool spvOperandIsConcrete(spv_operand_type_t type) {
   }
   switch (type) {
     case SPV_OPERAND_TYPE_LITERAL_INTEGER:
+    case SPV_OPERAND_TYPE_LITERAL_FLOAT:
     case SPV_OPERAND_TYPE_EXTENSION_INSTRUCTION_NUMBER:
     case SPV_OPERAND_TYPE_SPEC_CONSTANT_OP_NUMBER:
     case SPV_OPERAND_TYPE_TYPED_LITERAL_NUMBER:
@@ -305,10 +341,31 @@ bool spvOperandIsConcrete(spv_operand_type_t type) {
     case SPV_OPERAND_TYPE_KERNEL_ENQ_FLAGS:
     case SPV_OPERAND_TYPE_KERNEL_PROFILING_INFO:
     case SPV_OPERAND_TYPE_CAPABILITY:
+    case SPV_OPERAND_TYPE_RAY_FLAGS:
+    case SPV_OPERAND_TYPE_RAY_QUERY_INTERSECTION:
+    case SPV_OPERAND_TYPE_RAY_QUERY_COMMITTED_INTERSECTION_TYPE:
+    case SPV_OPERAND_TYPE_RAY_QUERY_CANDIDATE_INTERSECTION_TYPE:
     case SPV_OPERAND_TYPE_DEBUG_BASE_TYPE_ATTRIBUTE_ENCODING:
     case SPV_OPERAND_TYPE_DEBUG_COMPOSITE_TYPE:
     case SPV_OPERAND_TYPE_DEBUG_TYPE_QUALIFIER:
     case SPV_OPERAND_TYPE_DEBUG_OPERATION:
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_BASE_TYPE_ATTRIBUTE_ENCODING:
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_COMPOSITE_TYPE:
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_TYPE_QUALIFIER:
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_OPERATION:
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_IMPORTED_ENTITY:
+    case SPV_OPERAND_TYPE_FPDENORM_MODE:
+    case SPV_OPERAND_TYPE_FPOPERATION_MODE:
+    case SPV_OPERAND_TYPE_QUANTIZATION_MODES:
+    case SPV_OPERAND_TYPE_OVERFLOW_MODES:
+    case SPV_OPERAND_TYPE_PACKED_VECTOR_FORMAT:
+    case SPV_OPERAND_TYPE_COOPERATIVE_MATRIX_LAYOUT:
+    case SPV_OPERAND_TYPE_COOPERATIVE_MATRIX_USE:
+    case SPV_OPERAND_TYPE_INITIALIZATION_MODE_QUALIFIER:
+    case SPV_OPERAND_TYPE_HOST_ACCESS_QUALIFIER:
+    case SPV_OPERAND_TYPE_LOAD_CACHE_CONTROL:
+    case SPV_OPERAND_TYPE_STORE_CACHE_CONTROL:
+    case SPV_OPERAND_TYPE_NAMED_MAXIMUM_NUMBER_OF_REGISTERS:
       return true;
     default:
       break;
@@ -324,7 +381,11 @@ bool spvOperandIsConcreteMask(spv_operand_type_t type) {
     case SPV_OPERAND_TYPE_LOOP_CONTROL:
     case SPV_OPERAND_TYPE_FUNCTION_CONTROL:
     case SPV_OPERAND_TYPE_MEMORY_ACCESS:
+    case SPV_OPERAND_TYPE_FRAGMENT_SHADING_RATE:
     case SPV_OPERAND_TYPE_DEBUG_INFO_FLAGS:
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_INFO_FLAGS:
+    case SPV_OPERAND_TYPE_COOPERATIVE_MATRIX_OPERANDS:
+    case SPV_OPERAND_TYPE_RAW_ACCESS_CHAIN_OPERANDS:
       return true;
     default:
       break;
@@ -333,13 +394,38 @@ bool spvOperandIsConcreteMask(spv_operand_type_t type) {
 }
 
 bool spvOperandIsOptional(spv_operand_type_t type) {
-  return SPV_OPERAND_TYPE_FIRST_OPTIONAL_TYPE <= type &&
-         type <= SPV_OPERAND_TYPE_LAST_OPTIONAL_TYPE;
+  switch (type) {
+    case SPV_OPERAND_TYPE_OPTIONAL_ID:
+    case SPV_OPERAND_TYPE_OPTIONAL_IMAGE:
+    case SPV_OPERAND_TYPE_OPTIONAL_MEMORY_ACCESS:
+    case SPV_OPERAND_TYPE_OPTIONAL_LITERAL_INTEGER:
+    case SPV_OPERAND_TYPE_OPTIONAL_LITERAL_NUMBER:
+    case SPV_OPERAND_TYPE_OPTIONAL_TYPED_LITERAL_INTEGER:
+    case SPV_OPERAND_TYPE_OPTIONAL_LITERAL_STRING:
+    case SPV_OPERAND_TYPE_OPTIONAL_ACCESS_QUALIFIER:
+    case SPV_OPERAND_TYPE_OPTIONAL_PACKED_VECTOR_FORMAT:
+    case SPV_OPERAND_TYPE_OPTIONAL_COOPERATIVE_MATRIX_OPERANDS:
+    case SPV_OPERAND_TYPE_OPTIONAL_CIV:
+    case SPV_OPERAND_TYPE_OPTIONAL_RAW_ACCESS_CHAIN_OPERANDS:
+      return true;
+    default:
+      break;
+  }
+  // Any variable operand is also optional.
+  return spvOperandIsVariable(type);
 }
 
 bool spvOperandIsVariable(spv_operand_type_t type) {
-  return SPV_OPERAND_TYPE_FIRST_VARIABLE_TYPE <= type &&
-         type <= SPV_OPERAND_TYPE_LAST_VARIABLE_TYPE;
+  switch (type) {
+    case SPV_OPERAND_TYPE_VARIABLE_ID:
+    case SPV_OPERAND_TYPE_VARIABLE_LITERAL_INTEGER:
+    case SPV_OPERAND_TYPE_VARIABLE_LITERAL_INTEGER_ID:
+    case SPV_OPERAND_TYPE_VARIABLE_ID_LITERAL_INTEGER:
+      return true;
+    default:
+      break;
+  }
+  return false;
 }
 
 bool spvExpandOperandSequenceOnce(spv_operand_type_t type,
@@ -417,7 +503,7 @@ bool spvIsInIdType(spv_operand_type_t type) {
     return false;
   }
   switch (type) {
-    // Blacklist non-input IDs.
+    // Deny non-input IDs.
     case SPV_OPERAND_TYPE_TYPE_ID:
     case SPV_OPERAND_TYPE_RESULT_ID:
       return false;
@@ -427,66 +513,110 @@ bool spvIsInIdType(spv_operand_type_t type) {
 }
 
 std::function<bool(unsigned)> spvOperandCanBeForwardDeclaredFunction(
-    SpvOp opcode) {
+    spv::Op opcode) {
   std::function<bool(unsigned index)> out;
+  if (spvOpcodeGeneratesType(opcode)) {
+    // All types can use forward pointers.
+    out = [](unsigned) { return true; };
+    return out;
+  }
   switch (opcode) {
-    case SpvOpExecutionMode:
-    case SpvOpExecutionModeId:
-    case SpvOpEntryPoint:
-    case SpvOpName:
-    case SpvOpMemberName:
-    case SpvOpSelectionMerge:
-    case SpvOpDecorate:
-    case SpvOpMemberDecorate:
-    case SpvOpDecorateId:
-    case SpvOpDecorateStringGOOGLE:
-    case SpvOpMemberDecorateStringGOOGLE:
-    case SpvOpTypeStruct:
-    case SpvOpBranch:
-    case SpvOpLoopMerge:
+    case spv::Op::OpExecutionMode:
+    case spv::Op::OpExecutionModeId:
+    case spv::Op::OpEntryPoint:
+    case spv::Op::OpName:
+    case spv::Op::OpMemberName:
+    case spv::Op::OpSelectionMerge:
+    case spv::Op::OpDecorate:
+    case spv::Op::OpMemberDecorate:
+    case spv::Op::OpDecorateId:
+    case spv::Op::OpDecorateStringGOOGLE:
+    case spv::Op::OpMemberDecorateStringGOOGLE:
+    case spv::Op::OpBranch:
+    case spv::Op::OpLoopMerge:
       out = [](unsigned) { return true; };
       break;
-    case SpvOpGroupDecorate:
-    case SpvOpGroupMemberDecorate:
-    case SpvOpBranchConditional:
-    case SpvOpSwitch:
+    case spv::Op::OpGroupDecorate:
+    case spv::Op::OpGroupMemberDecorate:
+    case spv::Op::OpBranchConditional:
+    case spv::Op::OpSwitch:
       out = [](unsigned index) { return index != 0; };
       break;
 
-    case SpvOpFunctionCall:
+    case spv::Op::OpFunctionCall:
       // The Function parameter.
       out = [](unsigned index) { return index == 2; };
       break;
 
-    case SpvOpPhi:
+    case spv::Op::OpPhi:
       out = [](unsigned index) { return index > 1; };
       break;
 
-    case SpvOpEnqueueKernel:
+    case spv::Op::OpEnqueueKernel:
       // The Invoke parameter.
       out = [](unsigned index) { return index == 8; };
       break;
 
-    case SpvOpGetKernelNDrangeSubGroupCount:
-    case SpvOpGetKernelNDrangeMaxSubGroupSize:
+    case spv::Op::OpGetKernelNDrangeSubGroupCount:
+    case spv::Op::OpGetKernelNDrangeMaxSubGroupSize:
       // The Invoke parameter.
       out = [](unsigned index) { return index == 3; };
       break;
 
-    case SpvOpGetKernelWorkGroupSize:
-    case SpvOpGetKernelPreferredWorkGroupSizeMultiple:
+    case spv::Op::OpGetKernelWorkGroupSize:
+    case spv::Op::OpGetKernelPreferredWorkGroupSizeMultiple:
       // The Invoke parameter.
       out = [](unsigned index) { return index == 2; };
       break;
-    case SpvOpTypeForwardPointer:
+    case spv::Op::OpTypeForwardPointer:
       out = [](unsigned index) { return index == 0; };
       break;
-    case SpvOpTypeArray:
+    case spv::Op::OpTypeArray:
       out = [](unsigned index) { return index == 1; };
       break;
     default:
       out = [](unsigned) { return false; };
       break;
+  }
+  return out;
+}
+
+std::function<bool(unsigned)> spvDbgInfoExtOperandCanBeForwardDeclaredFunction(
+    spv_ext_inst_type_t ext_type, uint32_t key) {
+  // The Vulkan debug info extended instruction set is non-semantic so allows no
+  // forward references ever
+  if (ext_type == SPV_EXT_INST_TYPE_NONSEMANTIC_SHADER_DEBUGINFO_100) {
+    return [](unsigned) { return false; };
+  }
+
+  // TODO(https://gitlab.khronos.org/spirv/SPIR-V/issues/532): Forward
+  // references for debug info instructions are still in discussion. We must
+  // update the following lines of code when we conclude the spec.
+  std::function<bool(unsigned index)> out;
+  if (ext_type == SPV_EXT_INST_TYPE_OPENCL_DEBUGINFO_100) {
+    switch (OpenCLDebugInfo100Instructions(key)) {
+      case OpenCLDebugInfo100DebugFunction:
+        out = [](unsigned index) { return index == 13; };
+        break;
+      case OpenCLDebugInfo100DebugTypeComposite:
+        out = [](unsigned index) { return index >= 13; };
+        break;
+      default:
+        out = [](unsigned) { return false; };
+        break;
+    }
+  } else {
+    switch (DebugInfoInstructions(key)) {
+      case DebugInfoDebugFunction:
+        out = [](unsigned index) { return index == 13; };
+        break;
+      case DebugInfoDebugTypeComposite:
+        out = [](unsigned index) { return index >= 12; };
+        break;
+      default:
+        out = [](unsigned) { return false; };
+        break;
+    }
   }
   return out;
 }

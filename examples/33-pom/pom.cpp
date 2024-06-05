@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include "common.h"
@@ -23,7 +23,7 @@ struct PosTangentBitangentTexcoordVertex
 
 	static void init()
 	{
-		ms_decl
+		ms_layout
 			.begin()
 			.add(bgfx::Attrib::Position,  3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::Tangent,   4, bgfx::AttribType::Uint8, true, true)
@@ -32,34 +32,20 @@ struct PosTangentBitangentTexcoordVertex
 			.end();
 	}
 
-	static bgfx::VertexDecl ms_decl;
+	static bgfx::VertexLayout ms_layout;
 };
 
-bgfx::VertexDecl PosTangentBitangentTexcoordVertex::ms_decl;
-
-uint32_t packUint32(uint8_t _x, uint8_t _y, uint8_t _z, uint8_t _w)
-{
-	union
-	{
-		uint32_t ui32;
-		uint8_t arr[4];
-	} un;
-
-	un.arr[0] = _x;
-	un.arr[1] = _y;
-	un.arr[2] = _z;
-	un.arr[3] = _w;
-
-	return un.ui32;
-}
+bgfx::VertexLayout PosTangentBitangentTexcoordVertex::ms_layout;
 
 uint32_t packF4u(float _x, float _y = 0.0f, float _z = 0.0f, float _w = 0.0f)
 {
-	const uint8_t xx = uint8_t(_x*127.0f + 128.0f);
-	const uint8_t yy = uint8_t(_y*127.0f + 128.0f);
-	const uint8_t zz = uint8_t(_z*127.0f + 128.0f);
-	const uint8_t ww = uint8_t(_w*127.0f + 128.0f);
-	return packUint32(xx, yy, zz, ww);
+	struct Packed { uint8_t value[4]; } arr = { 0 };
+	arr.value[0] = uint8_t(_x * 127.0f + 128.0f);
+	arr.value[1] = uint8_t(_y * 127.0f + 128.0f);
+	arr.value[2] = uint8_t(_z * 127.0f + 128.0f);
+	arr.value[3] = uint8_t(_w * 127.0f + 128.0f);
+
+	return bx::bitCast<uint32_t>(arr);
 }
 
 static PosTangentBitangentTexcoordVertex s_cubeVertices[24] =
@@ -111,8 +97,8 @@ static const uint16_t s_cubeIndices[36] =
 class ExamplePom : public entry::AppI
 {
 public:
-	ExamplePom(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExamplePom(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -128,6 +114,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
@@ -149,7 +138,7 @@ public:
 
 		// Create static vertex buffer.
 		m_vbh = bgfx::createVertexBuffer(bgfx::makeRef(s_cubeVertices, sizeof(s_cubeVertices) ),
-						 PosTangentBitangentTexcoordVertex::ms_decl);
+						 PosTangentBitangentTexcoordVertex::ms_layout);
 
 		// Create static index buffer.
 		m_ibh = bgfx::createIndexBuffer(bgfx::makeRef(s_cubeIndices, sizeof(s_cubeIndices) ) );
@@ -385,4 +374,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExamplePom, "33-pom", "Parallax mapping.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExamplePom
+	, "33-pom"
+	, "Parallax mapping."
+	, "https://bkaradzic.github.io/bgfx/examples.html#pom"
+	);

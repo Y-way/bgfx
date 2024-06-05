@@ -227,7 +227,8 @@ spv_result_t spvTextEncodeOperand(const spvtools::AssemblyGrammar& grammar,
 
       // Set the extended instruction type.
       // The import set id is the 3rd operand of OpExtInst.
-      if (pInst->opcode == SpvOpExtInst && pInst->words.size() == 4) {
+      if (spv::Op(pInst->opcode) == spv::Op::OpExtInst &&
+          pInst->words.size() == 4) {
         auto ext_inst_type = context->getExtInstTypeForId(pInst->words[3]);
         if (ext_inst_type == SPV_EXT_INST_TYPE_NONE) {
           return context->diagnostic()
@@ -242,21 +243,44 @@ spv_result_t spvTextEncodeOperand(const spvtools::AssemblyGrammar& grammar,
       // The assembler accepts the symbolic name for an extended instruction,
       // and emits its corresponding number.
       spv_ext_inst_desc extInst;
-      if (grammar.lookupExtInst(pInst->extInstType, textValue, &extInst)) {
-        return context->diagnostic()
-               << "Invalid extended instruction name '" << textValue << "'.";
-      }
-      spvInstructionAddWord(pInst, extInst->ext_inst);
+      if (grammar.lookupExtInst(pInst->extInstType, textValue, &extInst) ==
+          SPV_SUCCESS) {
+        // if we know about this extended instruction, push the numeric value
+        spvInstructionAddWord(pInst, extInst->ext_inst);
 
-      // Prepare to parse the operands for the extended instructions.
-      spvPushOperandTypes(extInst->operandTypes, pExpectedOperands);
+        // Prepare to parse the operands for the extended instructions.
+        spvPushOperandTypes(extInst->operandTypes, pExpectedOperands);
+      } else {
+        // if we don't know this extended instruction and the set isn't
+        // non-semantic, we cannot process further
+        if (!spvExtInstIsNonSemantic(pInst->extInstType)) {
+          return context->diagnostic()
+                 << "Invalid extended instruction name '" << textValue << "'.";
+        } else {
+          // for non-semantic instruction sets, as long as the text name is an
+          // integer value we can encode it since we know the form of all such
+          // extended instructions
+          spv_literal_t extInstValue;
+          if (spvTextToLiteral(textValue, &extInstValue) ||
+              extInstValue.type != SPV_LITERAL_TYPE_UINT_32) {
+            return context->diagnostic()
+                   << "Couldn't translate unknown extended instruction name '"
+                   << textValue << "' to unsigned integer.";
+          }
+
+          spvInstructionAddWord(pInst, extInstValue.value.u32);
+
+          // opcode contains an unknown number of IDs.
+          pExpectedOperands->push_back(SPV_OPERAND_TYPE_VARIABLE_ID);
+        }
+      }
     } break;
 
     case SPV_OPERAND_TYPE_SPEC_CONSTANT_OP_NUMBER: {
       // The assembler accepts the symbolic name for the opcode, but without
       // the "Op" prefix.  For example, "IAdd" is accepted.  The number
       // of the opcode is emitted.
-      SpvOp opcode;
+      spv::Op opcode;
       if (grammar.lookupSpecConstantOpcode(textValue, &opcode)) {
         return context->diagnostic() << "Invalid " << spvOperandTypeStr(type)
                                      << " '" << textValue << "'.";
@@ -288,6 +312,17 @@ spv_result_t spvTextEncodeOperand(const spvtools::AssemblyGrammar& grammar,
       }
     } break;
 
+    case SPV_OPERAND_TYPE_LITERAL_FLOAT: {
+      // The current operand is a 32-bit float.
+      // That's just how the grammar works.
+      spvtools::IdType expected_type = {
+          32, false, spvtools::IdTypeClass::kScalarFloatType};
+      if (auto error = context->binaryEncodeNumericLiteral(
+              textValue, error_code_for_literals, expected_type, pInst)) {
+        return error;
+      }
+    } break;
+
     case SPV_OPERAND_TYPE_OPTIONAL_LITERAL_NUMBER:
       // This is a context-independent literal number which can be a 32-bit
       // number of floating point value.
@@ -304,8 +339,8 @@ spv_result_t spvTextEncodeOperand(const spvtools::AssemblyGrammar& grammar,
       // The encoding for OpConstant, OpSpecConstant and OpSwitch all
       // depend on either their own result-id or the result-id of
       // one of their parameters.
-      if (SpvOpConstant == pInst->opcode ||
-          SpvOpSpecConstant == pInst->opcode) {
+      if (spv::Op::OpConstant == pInst->opcode ||
+          spv::Op::OpSpecConstant == pInst->opcode) {
         // The type of the literal is determined by the type Id of the
         // instruction.
         expected_type =
@@ -321,7 +356,7 @@ spv_result_t spvTextEncodeOperand(const spvtools::AssemblyGrammar& grammar,
                  << "Type for " << opcode_name
                  << " must be a scalar floating point or integer type";
         }
-      } else if (pInst->opcode == SpvOpSwitch) {
+      } else if (pInst->opcode == spv::Op::OpSwitch) {
         // The type of the literal is the same as the type of the selector.
         expected_type = context->getTypeOfValueInstruction(pInst->words[1]);
         if (!spvtools::isScalarIntegral(expected_type)) {
@@ -352,7 +387,7 @@ spv_result_t spvTextEncodeOperand(const spvtools::AssemblyGrammar& grammar,
       }
 
       // NOTE: Special case for extended instruction library import
-      if (SpvOpExtInstImport == pInst->opcode) {
+      if (spv::Op::OpExtInstImport == pInst->opcode) {
         const spv_ext_inst_type_t ext_inst_type =
             spvExtInstImportTypeGet(literal.str.c_str());
         if (SPV_EXT_INST_TYPE_NONE == ext_inst_type) {
@@ -376,12 +411,16 @@ spv_result_t spvTextEncodeOperand(const spvtools::AssemblyGrammar& grammar,
     case SPV_OPERAND_TYPE_IMAGE:
     case SPV_OPERAND_TYPE_OPTIONAL_IMAGE:
     case SPV_OPERAND_TYPE_OPTIONAL_MEMORY_ACCESS:
+    case SPV_OPERAND_TYPE_OPTIONAL_RAW_ACCESS_CHAIN_OPERANDS:
     case SPV_OPERAND_TYPE_SELECTION_CONTROL:
-    case SPV_OPERAND_TYPE_DEBUG_INFO_FLAGS: {
+    case SPV_OPERAND_TYPE_DEBUG_INFO_FLAGS:
+    case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_INFO_FLAGS:
+    case SPV_OPERAND_TYPE_OPTIONAL_COOPERATIVE_MATRIX_OPERANDS: {
       uint32_t value;
-      if (grammar.parseMaskOperand(type, textValue, &value)) {
-        return context->diagnostic() << "Invalid " << spvOperandTypeStr(type)
-                                     << " operand '" << textValue << "'.";
+      if (auto error = grammar.parseMaskOperand(type, textValue, &value)) {
+        return context->diagnostic(error)
+               << "Invalid " << spvOperandTypeStr(type) << " operand '"
+               << textValue << "'.";
       }
       if (auto error = context->binaryEncodeU32(value, pInst)) return error;
       // Prepare to parse the operands for this logical operand.
@@ -518,7 +557,8 @@ spv_result_t spvTextEncodeOpcode(const spvtools::AssemblyGrammar& grammar,
     std::string equal_sign;
     error = context->getWord(&equal_sign, &nextPosition);
     if ("=" != equal_sign)
-      return context->diagnostic() << "'=' expected after result id.";
+      return context->diagnostic() << "'=' expected after result id but found '"
+                                   << equal_sign << "'.";
 
     // The <opcode> after the '=' sign.
     context->setPosition(nextPosition);
@@ -545,6 +585,11 @@ spv_result_t spvTextEncodeOpcode(const spvtools::AssemblyGrammar& grammar,
     return context->diagnostic()
            << "Expected <result-id> at the beginning of an instruction, found '"
            << firstWord << "'.";
+  }
+  if (!opcodeEntry->hasResult && !result_id.empty()) {
+    return context->diagnostic()
+           << "Cannot set ID " << result_id << " because " << opcodeName
+           << " does not produce a result ID.";
   }
   pInst->opcode = opcodeEntry->opcode;
   context->setPosition(nextPosition);
@@ -593,7 +638,8 @@ spv_result_t spvTextEncodeOpcode(const spvtools::AssemblyGrammar& grammar,
           break;
         } else {
           return context->diagnostic()
-                 << "Expected operand, found end of stream.";
+                 << "Expected operand for " << opcodeName
+                 << " instruction, but found the end of the stream.";
         }
       }
       assert(error == SPV_SUCCESS && "Somebody added another way to fail");
@@ -603,7 +649,8 @@ spv_result_t spvTextEncodeOpcode(const spvtools::AssemblyGrammar& grammar,
           break;
         } else {
           return context->diagnostic()
-                 << "Expected operand, found next instruction instead.";
+                 << "Expected operand for " << opcodeName
+                 << " instruction, but found the next instruction instead.";
         }
       }
 
@@ -637,7 +684,7 @@ spv_result_t spvTextEncodeOpcode(const spvtools::AssemblyGrammar& grammar,
 
   if (pInst->words.size() > SPV_LIMIT_INSTRUCTION_WORD_COUNT_MAX) {
     return context->diagnostic()
-           << "Instruction too long: " << pInst->words.size()
+           << opcodeName << " Instruction too long: " << pInst->words.size()
            << " words, but the limit is "
            << SPV_LIMIT_INSTRUCTION_WORD_COUNT_MAX;
   }
@@ -656,7 +703,7 @@ spv_result_t SetHeader(spv_target_env env, const uint32_t bound,
                        uint32_t* header) {
   if (!header) return SPV_ERROR_INVALID_BINARY;
 
-  header[SPV_INDEX_MAGIC_NUMBER] = SpvMagicNumber;
+  header[SPV_INDEX_MAGIC_NUMBER] = spv::MagicNumber;
   header[SPV_INDEX_VERSION_NUMBER] = spvVersionForTargetEnv(env);
   header[SPV_INDEX_GENERATOR_NUMBER] =
       SPV_GENERATOR_WORD(SPV_GENERATOR_KHRONOS_ASSEMBLER, kAssemblerVersion);
@@ -685,6 +732,12 @@ spv_result_t GetNumericIds(const spvtools::AssemblyGrammar& grammar,
 
   while (context.hasText()) {
     spv_instruction_t inst;
+
+    // Operand parsing sometimes involves knowing the opcode of the instruction
+    // being parsed. A malformed input might feature such an operand *before*
+    // the opcode is known. To guard against accessing an uninitialized opcode,
+    // the instruction's opcode is initialized to a default value.
+    inst.opcode = spv::Op::Max;
 
     if (spvTextEncodeOpcode(grammar, &context, &inst)) {
       return SPV_ERROR_INVALID_TEXT;
@@ -734,8 +787,8 @@ spv_result_t spvTextToBinaryInternal(const spvtools::AssemblyGrammar& grammar,
     instructions.push_back({});
     spv_instruction_t& inst = instructions.back();
 
-    if (spvTextEncodeOpcode(grammar, &context, &inst)) {
-      return SPV_ERROR_INVALID_TEXT;
+    if (auto error = spvTextEncodeOpcode(grammar, &context, &inst)) {
+      return error;
     }
 
     if (context.advance()) break;
@@ -805,7 +858,8 @@ spv_result_t spvTextToBinaryWithOptions(const spv_const_context context,
 }
 
 void spvTextDestroy(spv_text text) {
-  if (!text) return;
-  delete[] text->str;
-  delete text;
+  if (text) {
+    if (text->str) delete[] text->str;
+    delete text;
+  }
 }

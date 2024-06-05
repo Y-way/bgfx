@@ -17,15 +17,16 @@
 #include "ir_builder.h"
 #include "source/opt/ir_context.h"
 
-namespace {
-const uint32_t kRemovedMember = 0xFFFFFFFF;
-}
-
 namespace spvtools {
 namespace opt {
+namespace {
+constexpr uint32_t kRemovedMember = 0xFFFFFFFF;
+constexpr uint32_t kSpecConstOpOpcodeIdx = 0;
+constexpr uint32_t kArrayElementTypeIdx = 0;
+}  // namespace
 
 Pass::Status EliminateDeadMembersPass::Process() {
-  if (!context()->get_feature_mgr()->HasCapability(SpvCapabilityShader))
+  if (!context()->get_feature_mgr()->HasCapability(spv::Capability::Shader))
     return Status::SuccessWithoutChange;
 
   FindLiveMembers();
@@ -36,18 +37,37 @@ Pass::Status EliminateDeadMembersPass::Process() {
 }
 
 void EliminateDeadMembersPass::FindLiveMembers() {
-  // Until we have implemented the rewritting of OpSpecConsantOp instructions,
+  // Until we have implemented the rewriting of OpSpecConsantOp instructions,
   // we have to mark them as fully used just to be safe.
   for (auto& inst : get_module()->types_values()) {
-    if (inst.opcode() == SpvOpSpecConstantOp) {
-      MarkTypeAsFullyUsed(inst.type_id());
-    } else if (inst.opcode() == SpvOpVariable) {
-      switch (inst.GetSingleWordInOperand(0)) {
-        case SpvStorageClassInput:
-        case SpvStorageClassOutput:
+    if (inst.opcode() == spv::Op::OpSpecConstantOp) {
+      switch (spv::Op(inst.GetSingleWordInOperand(kSpecConstOpOpcodeIdx))) {
+        case spv::Op::OpCompositeExtract:
+          MarkMembersAsLiveForExtract(&inst);
+          break;
+        case spv::Op::OpCompositeInsert:
+          // Nothing specific to do.
+          break;
+        case spv::Op::OpAccessChain:
+        case spv::Op::OpInBoundsAccessChain:
+        case spv::Op::OpPtrAccessChain:
+        case spv::Op::OpInBoundsPtrAccessChain:
+          assert(false && "Not implemented yet.");
+          break;
+        default:
+          break;
+      }
+    } else if (inst.opcode() == spv::Op::OpVariable) {
+      switch (spv::StorageClass(inst.GetSingleWordInOperand(0))) {
+        case spv::StorageClass::Input:
+        case spv::StorageClass::Output:
           MarkPointeeTypeAsFullUsed(inst.type_id());
           break;
         default:
+          // Ignore structured buffers as layout(offset) qualifiers cannot be
+          // applied to structure fields
+          if (inst.IsVulkanStorageBufferVariable())
+            MarkPointeeTypeAsFullUsed(inst.type_id());
           break;
       }
     }
@@ -65,34 +85,34 @@ void EliminateDeadMembersPass::FindLiveMembers(const Function& function) {
 
 void EliminateDeadMembersPass::FindLiveMembers(const Instruction* inst) {
   switch (inst->opcode()) {
-    case SpvOpStore:
+    case spv::Op::OpStore:
       MarkMembersAsLiveForStore(inst);
       break;
-    case SpvOpCopyMemory:
-    case SpvOpCopyMemorySized:
+    case spv::Op::OpCopyMemory:
+    case spv::Op::OpCopyMemorySized:
       MarkMembersAsLiveForCopyMemory(inst);
       break;
-    case SpvOpCompositeExtract:
+    case spv::Op::OpCompositeExtract:
       MarkMembersAsLiveForExtract(inst);
       break;
-    case SpvOpAccessChain:
-    case SpvOpInBoundsAccessChain:
-    case SpvOpPtrAccessChain:
-    case SpvOpInBoundsPtrAccessChain:
+    case spv::Op::OpAccessChain:
+    case spv::Op::OpInBoundsAccessChain:
+    case spv::Op::OpPtrAccessChain:
+    case spv::Op::OpInBoundsPtrAccessChain:
       MarkMembersAsLiveForAccessChain(inst);
       break;
-    case SpvOpReturnValue:
+    case spv::Op::OpReturnValue:
       // This should be an issue only if we are returning from the entry point.
       // However, for now I will keep it more conservative because functions are
       // often inlined leaving only the entry points.
       MarkOperandTypeAsFullyUsed(inst, 0);
       break;
-    case SpvOpArrayLength:
+    case spv::Op::OpArrayLength:
       MarkMembersAsLiveForArrayLength(inst);
       break;
-    case SpvOpLoad:
-    case SpvOpCompositeInsert:
-    case SpvOpCompositeConstruct:
+    case spv::Op::OpLoad:
+    case spv::Op::OpCompositeInsert:
+    case spv::Op::OpCompositeConstruct:
       break;
     default:
       // This path is here for safety.  All instructions that can reference
@@ -110,7 +130,7 @@ void EliminateDeadMembersPass::MarkMembersAsLiveForStore(
   // memory that is read outside of the shader.  Other passes can remove all
   // store to memory that is not visible outside of the shader, so we do not
   // complicate the code for now.
-  assert(inst->opcode() == SpvOpStore);
+  assert(inst->opcode() == spv::Op::OpStore);
   uint32_t object_id = inst->GetSingleWordInOperand(1);
   Instruction* object_inst = context()->get_def_use_mgr()->GetDef(object_id);
   uint32_t object_type_id = object_inst->type_id();
@@ -120,24 +140,28 @@ void EliminateDeadMembersPass::MarkMembersAsLiveForStore(
 void EliminateDeadMembersPass::MarkTypeAsFullyUsed(uint32_t type_id) {
   Instruction* type_inst = get_def_use_mgr()->GetDef(type_id);
   assert(type_inst != nullptr);
-  if (type_inst->opcode() != SpvOpTypeStruct) {
-    return;
-  }
 
-  // Mark every member of the current struct as used.
-  for (uint32_t i = 0; i < type_inst->NumInOperands(); ++i) {
-    used_members_[type_id].insert(i);
-  }
-
-  // Mark any sub struct as fully used.
-  for (uint32_t i = 0; i < type_inst->NumInOperands(); ++i) {
-    MarkTypeAsFullyUsed(type_inst->GetSingleWordInOperand(i));
+  switch (type_inst->opcode()) {
+    case spv::Op::OpTypeStruct:
+      // Mark every member and its type as fully used.
+      for (uint32_t i = 0; i < type_inst->NumInOperands(); ++i) {
+        used_members_[type_id].insert(i);
+        MarkTypeAsFullyUsed(type_inst->GetSingleWordInOperand(i));
+      }
+      break;
+    case spv::Op::OpTypeArray:
+    case spv::Op::OpTypeRuntimeArray:
+      MarkTypeAsFullyUsed(
+          type_inst->GetSingleWordInOperand(kArrayElementTypeIdx));
+      break;
+    default:
+      break;
   }
 }
 
 void EliminateDeadMembersPass::MarkPointeeTypeAsFullUsed(uint32_t ptr_type_id) {
   Instruction* ptr_type_inst = get_def_use_mgr()->GetDef(ptr_type_id);
-  assert(ptr_type_inst->opcode() == SpvOpTypePointer);
+  assert(ptr_type_inst->opcode() == spv::Op::OpTypePointer);
   MarkTypeAsFullyUsed(ptr_type_inst->GetSingleWordInOperand(1));
 }
 
@@ -153,24 +177,29 @@ void EliminateDeadMembersPass::MarkMembersAsLiveForCopyMemory(
 
 void EliminateDeadMembersPass::MarkMembersAsLiveForExtract(
     const Instruction* inst) {
-  assert(inst->opcode() == SpvOpCompositeExtract);
+  assert(inst->opcode() == spv::Op::OpCompositeExtract ||
+         (inst->opcode() == spv::Op::OpSpecConstantOp &&
+          spv::Op(inst->GetSingleWordInOperand(kSpecConstOpOpcodeIdx)) ==
+              spv::Op::OpCompositeExtract));
 
-  uint32_t composite_id = inst->GetSingleWordInOperand(0);
+  uint32_t first_operand =
+      (inst->opcode() == spv::Op::OpSpecConstantOp ? 1 : 0);
+  uint32_t composite_id = inst->GetSingleWordInOperand(first_operand);
   Instruction* composite_inst = get_def_use_mgr()->GetDef(composite_id);
   uint32_t type_id = composite_inst->type_id();
 
-  for (uint32_t i = 1; i < inst->NumInOperands(); ++i) {
+  for (uint32_t i = first_operand + 1; i < inst->NumInOperands(); ++i) {
     Instruction* type_inst = get_def_use_mgr()->GetDef(type_id);
     uint32_t member_idx = inst->GetSingleWordInOperand(i);
     switch (type_inst->opcode()) {
-      case SpvOpTypeStruct:
+      case spv::Op::OpTypeStruct:
         used_members_[type_id].insert(member_idx);
         type_id = type_inst->GetSingleWordInOperand(member_idx);
         break;
-      case SpvOpTypeArray:
-      case SpvOpTypeRuntimeArray:
-      case SpvOpTypeVector:
-      case SpvOpTypeMatrix:
+      case spv::Op::OpTypeArray:
+      case spv::Op::OpTypeRuntimeArray:
+      case spv::Op::OpTypeVector:
+      case spv::Op::OpTypeMatrix:
         type_id = type_inst->GetSingleWordInOperand(0);
         break;
       default:
@@ -181,10 +210,10 @@ void EliminateDeadMembersPass::MarkMembersAsLiveForExtract(
 
 void EliminateDeadMembersPass::MarkMembersAsLiveForAccessChain(
     const Instruction* inst) {
-  assert(inst->opcode() == SpvOpAccessChain ||
-         inst->opcode() == SpvOpInBoundsAccessChain ||
-         inst->opcode() == SpvOpPtrAccessChain ||
-         inst->opcode() == SpvOpInBoundsPtrAccessChain);
+  assert(inst->opcode() == spv::Op::OpAccessChain ||
+         inst->opcode() == spv::Op::OpInBoundsAccessChain ||
+         inst->opcode() == spv::Op::OpPtrAccessChain ||
+         inst->opcode() == spv::Op::OpInBoundsPtrAccessChain);
 
   uint32_t pointer_id = inst->GetSingleWordInOperand(0);
   Instruction* pointer_inst = get_def_use_mgr()->GetDef(pointer_id);
@@ -196,32 +225,27 @@ void EliminateDeadMembersPass::MarkMembersAsLiveForAccessChain(
 
   // For a pointer access chain, we need to skip the |element| index.  It is not
   // a reference to the member of a struct, and it does not change the type.
-  uint32_t i = (inst->opcode() == SpvOpAccessChain ||
-                        inst->opcode() == SpvOpInBoundsAccessChain
+  uint32_t i = (inst->opcode() == spv::Op::OpAccessChain ||
+                        inst->opcode() == spv::Op::OpInBoundsAccessChain
                     ? 1
                     : 2);
   for (; i < inst->NumInOperands(); ++i) {
     Instruction* type_inst = get_def_use_mgr()->GetDef(type_id);
     switch (type_inst->opcode()) {
-      case SpvOpTypeStruct: {
+      case spv::Op::OpTypeStruct: {
         const analysis::IntConstant* member_idx =
             const_mgr->FindDeclaredConstant(inst->GetSingleWordInOperand(i))
                 ->AsIntConstant();
         assert(member_idx);
-        if (member_idx->type()->AsInteger()->width() == 32) {
-          used_members_[type_id].insert(member_idx->GetU32());
-          type_id = type_inst->GetSingleWordInOperand(member_idx->GetU32());
-        } else {
-          used_members_[type_id].insert(
-              static_cast<uint32_t>(member_idx->GetU64()));
-          type_id = type_inst->GetSingleWordInOperand(
-              static_cast<uint32_t>(member_idx->GetU64()));
-        }
+        uint32_t index =
+            static_cast<uint32_t>(member_idx->GetZeroExtendedValue());
+        used_members_[type_id].insert(index);
+        type_id = type_inst->GetSingleWordInOperand(index);
       } break;
-      case SpvOpTypeArray:
-      case SpvOpTypeRuntimeArray:
-      case SpvOpTypeVector:
-      case SpvOpTypeMatrix:
+      case spv::Op::OpTypeArray:
+      case spv::Op::OpTypeRuntimeArray:
+      case spv::Op::OpTypeVector:
+      case spv::Op::OpTypeMatrix:
         type_id = type_inst->GetSingleWordInOperand(0);
         break;
       default:
@@ -239,7 +263,7 @@ void EliminateDeadMembersPass::MarkOperandTypeAsFullyUsed(
 
 void EliminateDeadMembersPass::MarkMembersAsLiveForArrayLength(
     const Instruction* inst) {
-  assert(inst->opcode() == SpvOpArrayLength);
+  assert(inst->opcode() == spv::Op::OpArrayLength);
   uint32_t object_id = inst->GetSingleWordInOperand(0);
   Instruction* object_inst = get_def_use_mgr()->GetDef(object_id);
   uint32_t pointer_type_id = object_inst->type_id();
@@ -254,7 +278,7 @@ bool EliminateDeadMembersPass::RemoveDeadMembers() {
   // First update all of the OpTypeStruct instructions.
   get_module()->ForEachInst([&modified, this](Instruction* inst) {
     switch (inst->opcode()) {
-      case SpvOpTypeStruct:
+      case spv::Op::OpTypeStruct:
         modified |= UpdateOpTypeStruct(inst);
         break;
       default:
@@ -265,40 +289,52 @@ bool EliminateDeadMembersPass::RemoveDeadMembers() {
   // Now update all of the instructions that reference the OpTypeStructs.
   get_module()->ForEachInst([&modified, this](Instruction* inst) {
     switch (inst->opcode()) {
-      case SpvOpMemberName:
+      case spv::Op::OpMemberName:
         modified |= UpdateOpMemberNameOrDecorate(inst);
         break;
-      case SpvOpMemberDecorate:
+      case spv::Op::OpMemberDecorate:
         modified |= UpdateOpMemberNameOrDecorate(inst);
         break;
-      case SpvOpGroupMemberDecorate:
+      case spv::Op::OpGroupMemberDecorate:
         modified |= UpdateOpGroupMemberDecorate(inst);
         break;
-      case SpvOpSpecConstantComposite:
-      case SpvOpConstantComposite:
-      case SpvOpCompositeConstruct:
+      case spv::Op::OpSpecConstantComposite:
+      case spv::Op::OpConstantComposite:
+      case spv::Op::OpCompositeConstruct:
         modified |= UpdateConstantComposite(inst);
         break;
-      case SpvOpAccessChain:
-      case SpvOpInBoundsAccessChain:
-      case SpvOpPtrAccessChain:
-      case SpvOpInBoundsPtrAccessChain:
+      case spv::Op::OpAccessChain:
+      case spv::Op::OpInBoundsAccessChain:
+      case spv::Op::OpPtrAccessChain:
+      case spv::Op::OpInBoundsPtrAccessChain:
         modified |= UpdateAccessChain(inst);
         break;
-      case SpvOpCompositeExtract:
+      case spv::Op::OpCompositeExtract:
         modified |= UpdateCompsiteExtract(inst);
         break;
-      case SpvOpCompositeInsert:
+      case spv::Op::OpCompositeInsert:
         modified |= UpdateCompositeInsert(inst);
         break;
-      case SpvOpArrayLength:
+      case spv::Op::OpArrayLength:
         modified |= UpdateOpArrayLength(inst);
         break;
-      case SpvOpSpecConstantOp:
-        assert(false && "Not yet implemented.");
-        // with OpCompositeExtract, OpCompositeInsert
-        // For kernels: OpAccessChain, OpInBoundsAccessChain, OpPtrAccessChain,
-        // OpInBoundsPtrAccessChain
+      case spv::Op::OpSpecConstantOp:
+        switch (spv::Op(inst->GetSingleWordInOperand(kSpecConstOpOpcodeIdx))) {
+          case spv::Op::OpCompositeExtract:
+            modified |= UpdateCompsiteExtract(inst);
+            break;
+          case spv::Op::OpCompositeInsert:
+            modified |= UpdateCompositeInsert(inst);
+            break;
+          case spv::Op::OpAccessChain:
+          case spv::Op::OpInBoundsAccessChain:
+          case spv::Op::OpPtrAccessChain:
+          case spv::Op::OpInBoundsPtrAccessChain:
+            assert(false && "Not implemented yet.");
+            break;
+          default:
+            break;
+        }
         break;
       default:
         break;
@@ -308,7 +344,7 @@ bool EliminateDeadMembersPass::RemoveDeadMembers() {
 }
 
 bool EliminateDeadMembersPass::UpdateOpTypeStruct(Instruction* inst) {
-  assert(inst->opcode() == SpvOpTypeStruct);
+  assert(inst->opcode() == spv::Op::OpTypeStruct);
 
   const auto& live_members = used_members_[inst->result_id()];
   if (live_members.size() == inst->NumInOperands()) {
@@ -326,8 +362,8 @@ bool EliminateDeadMembersPass::UpdateOpTypeStruct(Instruction* inst) {
 }
 
 bool EliminateDeadMembersPass::UpdateOpMemberNameOrDecorate(Instruction* inst) {
-  assert(inst->opcode() == SpvOpMemberName ||
-         inst->opcode() == SpvOpMemberDecorate);
+  assert(inst->opcode() == spv::Op::OpMemberName ||
+         inst->opcode() == spv::Op::OpMemberDecorate);
 
   uint32_t type_id = inst->GetSingleWordInOperand(0);
   auto live_members = used_members_.find(type_id);
@@ -352,7 +388,7 @@ bool EliminateDeadMembersPass::UpdateOpMemberNameOrDecorate(Instruction* inst) {
 }
 
 bool EliminateDeadMembersPass::UpdateOpGroupMemberDecorate(Instruction* inst) {
-  assert(inst->opcode() == SpvOpGroupMemberDecorate);
+  assert(inst->opcode() == spv::Op::OpGroupMemberDecorate);
 
   bool modified = false;
 
@@ -393,8 +429,9 @@ bool EliminateDeadMembersPass::UpdateOpGroupMemberDecorate(Instruction* inst) {
 }
 
 bool EliminateDeadMembersPass::UpdateConstantComposite(Instruction* inst) {
-  assert(inst->opcode() == SpvOpConstantComposite ||
-         inst->opcode() == SpvOpCompositeConstruct);
+  assert(inst->opcode() == spv::Op::OpSpecConstantComposite ||
+         inst->opcode() == spv::Op::OpConstantComposite ||
+         inst->opcode() == spv::Op::OpCompositeConstruct);
   uint32_t type_id = inst->type_id();
 
   bool modified = false;
@@ -413,10 +450,10 @@ bool EliminateDeadMembersPass::UpdateConstantComposite(Instruction* inst) {
 }
 
 bool EliminateDeadMembersPass::UpdateAccessChain(Instruction* inst) {
-  assert(inst->opcode() == SpvOpAccessChain ||
-         inst->opcode() == SpvOpInBoundsAccessChain ||
-         inst->opcode() == SpvOpPtrAccessChain ||
-         inst->opcode() == SpvOpInBoundsPtrAccessChain);
+  assert(inst->opcode() == spv::Op::OpAccessChain ||
+         inst->opcode() == spv::Op::OpInBoundsAccessChain ||
+         inst->opcode() == spv::Op::OpPtrAccessChain ||
+         inst->opcode() == spv::Op::OpInBoundsPtrAccessChain);
 
   uint32_t pointer_id = inst->GetSingleWordInOperand(0);
   Instruction* pointer_inst = get_def_use_mgr()->GetDef(pointer_id);
@@ -430,8 +467,8 @@ bool EliminateDeadMembersPass::UpdateAccessChain(Instruction* inst) {
   new_operands.emplace_back(inst->GetInOperand(0));
 
   // For pointer access chains we want to copy the element operand.
-  if (inst->opcode() == SpvOpPtrAccessChain ||
-      inst->opcode() == SpvOpInBoundsPtrAccessChain) {
+  if (inst->opcode() == spv::Op::OpPtrAccessChain ||
+      inst->opcode() == spv::Op::OpInBoundsPtrAccessChain) {
     new_operands.emplace_back(inst->GetInOperand(1));
   }
 
@@ -439,17 +476,13 @@ bool EliminateDeadMembersPass::UpdateAccessChain(Instruction* inst) {
        i < inst->NumInOperands(); ++i) {
     Instruction* type_inst = get_def_use_mgr()->GetDef(type_id);
     switch (type_inst->opcode()) {
-      case SpvOpTypeStruct: {
+      case spv::Op::OpTypeStruct: {
         const analysis::IntConstant* member_idx =
             const_mgr->FindDeclaredConstant(inst->GetSingleWordInOperand(i))
                 ->AsIntConstant();
         assert(member_idx);
-        uint32_t orig_member_idx;
-        if (member_idx->type()->AsInteger()->width() == 32) {
-          orig_member_idx = member_idx->GetU32();
-        } else {
-          orig_member_idx = static_cast<uint32_t>(member_idx->GetU64());
-        }
+        uint32_t orig_member_idx =
+            static_cast<uint32_t>(member_idx->GetZeroExtendedValue());
         uint32_t new_member_idx = GetNewMemberIndex(type_id, orig_member_idx);
         assert(new_member_idx != kRemovedMember);
         if (orig_member_idx != new_member_idx) {
@@ -468,10 +501,10 @@ bool EliminateDeadMembersPass::UpdateAccessChain(Instruction* inst) {
         // index.
         type_id = type_inst->GetSingleWordInOperand(new_member_idx);
       } break;
-      case SpvOpTypeArray:
-      case SpvOpTypeRuntimeArray:
-      case SpvOpTypeVector:
-      case SpvOpTypeMatrix:
+      case spv::Op::OpTypeArray:
+      case spv::Op::OpTypeRuntimeArray:
+      case spv::Op::OpTypeVector:
+      case spv::Op::OpTypeMatrix:
         new_operands.emplace_back(inst->GetInOperand(i));
         type_id = type_inst->GetSingleWordInOperand(0);
         break;
@@ -506,14 +539,25 @@ uint32_t EliminateDeadMembersPass::GetNewMemberIndex(uint32_t type_id,
 }
 
 bool EliminateDeadMembersPass::UpdateCompsiteExtract(Instruction* inst) {
-  uint32_t object_id = inst->GetSingleWordInOperand(0);
+  assert(inst->opcode() == spv::Op::OpCompositeExtract ||
+         (inst->opcode() == spv::Op::OpSpecConstantOp &&
+          spv::Op(inst->GetSingleWordInOperand(kSpecConstOpOpcodeIdx)) ==
+              spv::Op::OpCompositeExtract));
+
+  uint32_t first_operand = 0;
+  if (inst->opcode() == spv::Op::OpSpecConstantOp) {
+    first_operand = 1;
+  }
+  uint32_t object_id = inst->GetSingleWordInOperand(first_operand);
   Instruction* object_inst = get_def_use_mgr()->GetDef(object_id);
   uint32_t type_id = object_inst->type_id();
 
   Instruction::OperandList new_operands;
   bool modified = false;
-  new_operands.emplace_back(inst->GetInOperand(0));
-  for (uint32_t i = 1; i < inst->NumInOperands(); ++i) {
+  for (uint32_t i = 0; i < first_operand + 1; i++) {
+    new_operands.emplace_back(inst->GetInOperand(i));
+  }
+  for (uint32_t i = first_operand + 1; i < inst->NumInOperands(); ++i) {
     uint32_t member_idx = inst->GetSingleWordInOperand(i);
     uint32_t new_member_idx = GetNewMemberIndex(type_id, member_idx);
     assert(new_member_idx != kRemovedMember);
@@ -525,17 +569,15 @@ bool EliminateDeadMembersPass::UpdateCompsiteExtract(Instruction* inst) {
 
     Instruction* type_inst = get_def_use_mgr()->GetDef(type_id);
     switch (type_inst->opcode()) {
-      case SpvOpTypeStruct:
-        assert(i != 1 || (inst->opcode() != SpvOpPtrAccessChain &&
-                          inst->opcode() != SpvOpInBoundsPtrAccessChain));
-        // The type will have already been rewriten, so use the new member
+      case spv::Op::OpTypeStruct:
+        // The type will have already been rewritten, so use the new member
         // index.
         type_id = type_inst->GetSingleWordInOperand(new_member_idx);
         break;
-      case SpvOpTypeArray:
-      case SpvOpTypeRuntimeArray:
-      case SpvOpTypeVector:
-      case SpvOpTypeMatrix:
+      case spv::Op::OpTypeArray:
+      case spv::Op::OpTypeRuntimeArray:
+      case spv::Op::OpTypeVector:
+      case spv::Op::OpTypeMatrix:
         type_id = type_inst->GetSingleWordInOperand(0);
         break;
       default:
@@ -552,15 +594,27 @@ bool EliminateDeadMembersPass::UpdateCompsiteExtract(Instruction* inst) {
 }
 
 bool EliminateDeadMembersPass::UpdateCompositeInsert(Instruction* inst) {
-  uint32_t composite_id = inst->GetSingleWordInOperand(1);
+  assert(inst->opcode() == spv::Op::OpCompositeInsert ||
+         (inst->opcode() == spv::Op::OpSpecConstantOp &&
+          spv::Op(inst->GetSingleWordInOperand(kSpecConstOpOpcodeIdx)) ==
+              spv::Op::OpCompositeInsert));
+
+  uint32_t first_operand = 0;
+  if (inst->opcode() == spv::Op::OpSpecConstantOp) {
+    first_operand = 1;
+  }
+
+  uint32_t composite_id = inst->GetSingleWordInOperand(first_operand + 1);
   Instruction* composite_inst = get_def_use_mgr()->GetDef(composite_id);
   uint32_t type_id = composite_inst->type_id();
 
   Instruction::OperandList new_operands;
   bool modified = false;
-  new_operands.emplace_back(inst->GetInOperand(0));
-  new_operands.emplace_back(inst->GetInOperand(1));
-  for (uint32_t i = 2; i < inst->NumInOperands(); ++i) {
+
+  for (uint32_t i = 0; i < first_operand + 2; ++i) {
+    new_operands.emplace_back(inst->GetInOperand(i));
+  }
+  for (uint32_t i = first_operand + 2; i < inst->NumInOperands(); ++i) {
     uint32_t member_idx = inst->GetSingleWordInOperand(i);
     uint32_t new_member_idx = GetNewMemberIndex(type_id, member_idx);
     if (new_member_idx == kRemovedMember) {
@@ -576,15 +630,15 @@ bool EliminateDeadMembersPass::UpdateCompositeInsert(Instruction* inst) {
 
     Instruction* type_inst = get_def_use_mgr()->GetDef(type_id);
     switch (type_inst->opcode()) {
-      case SpvOpTypeStruct:
+      case spv::Op::OpTypeStruct:
         // The type will have already been rewritten, so use the new member
         // index.
         type_id = type_inst->GetSingleWordInOperand(new_member_idx);
         break;
-      case SpvOpTypeArray:
-      case SpvOpTypeRuntimeArray:
-      case SpvOpTypeVector:
-      case SpvOpTypeMatrix:
+      case spv::Op::OpTypeArray:
+      case spv::Op::OpTypeRuntimeArray:
+      case spv::Op::OpTypeVector:
+      case spv::Op::OpTypeMatrix:
         type_id = type_inst->GetSingleWordInOperand(0);
         break;
       default:

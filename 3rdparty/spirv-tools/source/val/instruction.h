@@ -21,6 +21,7 @@
 #include <utility>
 #include <vector>
 
+#include "source/ext_inst.h"
 #include "source/table.h"
 #include "spirv-tools/libspirv.h"
 
@@ -41,7 +42,7 @@ class Instruction {
 
   uint32_t id() const { return inst_.result_id; }
   uint32_t type_id() const { return inst_.type_id; }
-  SpvOp opcode() const { return static_cast<SpvOp>(inst_.opcode); }
+  spv::Op opcode() const { return static_cast<spv::Op>(inst_.opcode); }
 
   /// Returns the Function where the instruction was defined. nullptr if it was
   /// defined outside of a Function
@@ -85,6 +86,17 @@ class Instruction {
     return inst_.ext_inst_type;
   }
 
+  bool IsNonSemantic() const {
+    return opcode() == spv::Op::OpExtInst &&
+           spvExtInstIsNonSemantic(inst_.ext_inst_type);
+  }
+
+  /// True if this is an OpExtInst for debug info extension.
+  bool IsDebugInfo() const {
+    return opcode() == spv::Op::OpExtInst &&
+           spvExtInstIsDebugInfo(inst_.ext_inst_type);
+  }
+
   // Casts the words belonging to the operand under |index| to |T| and returns.
   template <typename T>
   T GetOperandAs(size_t index) const {
@@ -120,6 +132,9 @@ bool operator<(const Instruction& lhs, const Instruction& rhs);
 bool operator<(const Instruction& lhs, uint32_t rhs);
 bool operator==(const Instruction& lhs, const Instruction& rhs);
 bool operator==(const Instruction& lhs, uint32_t rhs);
+
+template <>
+std::string Instruction::GetOperandAs<std::string>(size_t index) const;
 
 }  // namespace val
 }  // namespace spvtools

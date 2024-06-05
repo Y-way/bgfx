@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include "common.h"
@@ -22,7 +22,7 @@ struct PosNormalTangentTexcoordVertex
 
 	static void init()
 	{
-		ms_decl
+		ms_layout
 			.begin()
 			.add(bgfx::Attrib::Position,  3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::Normal,    4, bgfx::AttribType::Uint8, true, true)
@@ -31,10 +31,10 @@ struct PosNormalTangentTexcoordVertex
 			.end();
 	}
 
-	static bgfx::VertexDecl ms_decl;
+	static bgfx::VertexLayout ms_layout;
 };
 
-bgfx::VertexDecl PosNormalTangentTexcoordVertex::ms_decl;
+bgfx::VertexLayout PosNormalTangentTexcoordVertex::ms_layout;
 
 static PosNormalTangentTexcoordVertex s_cubeVertices[24] =
 {
@@ -85,8 +85,8 @@ static const uint16_t s_cubeIndices[36] =
 class ExampleBump : public entry::AppI
 {
 public:
-	ExampleBump(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExampleBump(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -102,6 +102,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
@@ -127,7 +130,7 @@ public:
 
 		calcTangents(s_cubeVertices
 				, BX_COUNTOF(s_cubeVertices)
-				, PosNormalTangentTexcoordVertex::ms_decl
+				, PosNormalTangentTexcoordVertex::ms_layout
 				, s_cubeIndices
 				, BX_COUNTOF(s_cubeIndices)
 				);
@@ -135,7 +138,7 @@ public:
 		// Create static vertex buffer.
 		m_vbh = bgfx::createVertexBuffer(
 					  bgfx::makeRef(s_cubeVertices, sizeof(s_cubeVertices) )
-					, PosNormalTangentTexcoordVertex::ms_decl
+					, PosNormalTangentTexcoordVertex::ms_layout
 					);
 
 		// Create static index buffer.
@@ -370,4 +373,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExampleBump, "06-bump", "Loading textures.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExampleBump
+	, "06-bump"
+	, "Loading textures."
+	, "https://bkaradzic.github.io/bgfx/examples.html#bump"
+	);

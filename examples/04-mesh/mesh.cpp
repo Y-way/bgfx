@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include "common.h"
@@ -13,8 +13,8 @@ namespace
 class ExampleMesh : public entry::AppI
 {
 public:
-	ExampleMesh(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExampleMesh(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -30,6 +30,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
@@ -152,4 +155,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExampleMesh, "04-mesh", "Loading meshes.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExampleMesh
+	, "04-mesh"
+	, "Loading meshes."
+	, "https://bkaradzic.github.io/bgfx/examples.html#mesh"
+	);

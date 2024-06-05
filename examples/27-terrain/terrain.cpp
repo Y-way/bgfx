@@ -1,16 +1,15 @@
 /*
  * Copyright 2015 Andrew Mac. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
+#include <bx/allocator.h>
+#include <bx/debug.h>
+#include <bx/math.h>
 #include "common.h"
 #include "bgfx_utils.h"
 #include "imgui/imgui.h"
 #include "camera.h"
-#include "bounds.h"
-#include <bx/allocator.h>
-#include <bx/debug.h>
-#include <bx/math.h>
 
 namespace
 {
@@ -27,17 +26,17 @@ struct PosTexCoord0Vertex
 
 	static void init()
 	{
-		ms_decl
+		ms_layout
 			.begin()
 			.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
 			.end();
 	}
 
-	static bgfx::VertexDecl ms_decl;
+	static bgfx::VertexLayout ms_layout;
 };
 
-bgfx::VertexDecl PosTexCoord0Vertex::ms_decl;
+bgfx::VertexLayout PosTexCoord0Vertex::ms_layout;
 
 struct TerrainData
 {
@@ -62,8 +61,8 @@ struct BrushData
 class ExampleTerrain : public entry::AppI
 {
 public:
-	ExampleTerrain(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+ExampleTerrain(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -79,6 +78,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
@@ -126,9 +128,9 @@ public:
 
 		m_terrain.m_mode      = 0;
 		m_terrain.m_dirty     = true;
-		m_terrain.m_vertices  = (PosTexCoord0Vertex*)BX_ALLOC(entry::getAllocator(), num * sizeof(PosTexCoord0Vertex) );
-		m_terrain.m_indices   = (uint16_t*)BX_ALLOC(entry::getAllocator(), num * sizeof(uint16_t) * 6);
-		m_terrain.m_heightMap = (uint8_t*)BX_ALLOC(entry::getAllocator(), num);
+		m_terrain.m_vertices  = (PosTexCoord0Vertex*)bx::alloc(entry::getAllocator(), num * sizeof(PosTexCoord0Vertex) );
+		m_terrain.m_indices   = (uint16_t*)bx::alloc(entry::getAllocator(), num * sizeof(uint16_t) * 6);
+		m_terrain.m_heightMap = (uint8_t*)bx::alloc(entry::getAllocator(), num);
 
 		bx::mtxSRT(m_terrain.m_transform, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 		bx::memSet(m_terrain.m_heightMap, 0, sizeof(uint8_t) * s_terrainSize * s_terrainSize);
@@ -180,9 +182,9 @@ public:
 		bgfx::frame();
 
 		bx::AllocatorI* allocator = entry::getAllocator();
-		BX_FREE(allocator, m_terrain.m_vertices);
-		BX_FREE(allocator, m_terrain.m_indices);
-		BX_FREE(allocator, m_terrain.m_heightMap);
+		bx::free(allocator, m_terrain.m_vertices);
+		bx::free(allocator, m_terrain.m_indices);
+		bx::free(allocator, m_terrain.m_heightMap);
 
 		// Shutdown bgfx.
 		bgfx::shutdown();
@@ -241,7 +243,7 @@ public:
 			}
 
 			mem = bgfx::makeRef(&m_terrain.m_vertices[0], sizeof(PosTexCoord0Vertex) * m_terrain.m_vertexCount);
-			m_vbh = bgfx::createVertexBuffer(mem, PosTexCoord0Vertex::ms_decl);
+			m_vbh = bgfx::createVertexBuffer(mem, PosTexCoord0Vertex::ms_layout);
 			if (bgfx::isValid(m_ibh) )
 			{
 				bgfx::destroy(m_ibh);
@@ -256,7 +258,7 @@ public:
 
 			if (!bgfx::isValid(m_dvbh) )
 			{
-				m_dvbh = bgfx::createDynamicVertexBuffer(m_terrain.m_vertexCount, PosTexCoord0Vertex::ms_decl);
+				m_dvbh = bgfx::createDynamicVertexBuffer(m_terrain.m_vertexCount, PosTexCoord0Vertex::ms_layout);
 			}
 
 			mem = bgfx::makeRef(&m_terrain.m_vertices[0], sizeof(PosTexCoord0Vertex) * m_terrain.m_vertexCount);
@@ -277,7 +279,7 @@ public:
 				updateTerrainMesh();
 
 				mem = bgfx::makeRef(&m_terrain.m_vertices[0], sizeof(PosTexCoord0Vertex) * m_terrain.m_vertexCount);
-				m_vbh = bgfx::createVertexBuffer(mem, PosTexCoord0Vertex::ms_decl);
+				m_vbh = bgfx::createVertexBuffer(mem, PosTexCoord0Vertex::ms_layout);
 
 				mem = bgfx::makeRef(&m_terrain.m_indices[0], sizeof(uint16_t) * m_terrain.m_indexCount);
 				m_ibh = bgfx::createIndexBuffer(mem);
@@ -432,11 +434,11 @@ public:
 			ImGui::End();
 			imguiEndFrame();
 
+			// Update camera.
+			cameraUpdate(deltaTime, m_mouseState, ImGui::MouseOverArea() );
+
 			if (!ImGui::MouseOverArea() )
 			{
-				// Update camera.
-				cameraUpdate(deltaTime, m_mouseState);
-
 				if (!!m_mouseState.m_buttons[entry::MouseButton::Left])
 				{
 					mousePickTerrain();
@@ -522,4 +524,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExampleTerrain, "27-terrain", "Terrain painting example.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExampleTerrain
+	, "27-terrain"
+	, "Terrain painting example."
+	, "https://bkaradzic.github.io/bgfx/examples.html#terrain"
+	);

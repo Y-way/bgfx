@@ -14,12 +14,10 @@
 
 #include "source/val/function.h"
 
-#include <cassert>
-
 #include <algorithm>
+#include <cassert>
 #include <sstream>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 
 #include "source/cfa.h"
@@ -34,7 +32,7 @@ namespace val {
 static const uint32_t kInvalidId = 0x400000;
 
 Function::Function(uint32_t function_id, uint32_t result_type_id,
-                   SpvFunctionControlMask function_control,
+                   spv::FunctionControlMask function_control,
                    uint32_t function_type_id)
     : id_(function_id),
       function_type_id_(function_type_id),
@@ -58,7 +56,7 @@ spv_result_t Function::RegisterFunctionParameter(uint32_t parameter_id,
                                                  uint32_t type_id) {
   assert(current_block_ == nullptr &&
          "RegisterFunctionParameter can only be called when parsing the binary "
-         "ouside of a block");
+         "outside of a block");
   // TODO(umar): Validate function parameter type order and count
   // TODO(umar): Use these variables to validate parameter type
   (void)parameter_id;
@@ -74,6 +72,8 @@ spv_result_t Function::RegisterLoopMerge(uint32_t merge_id,
   BasicBlock& continue_target_block = blocks_.at(continue_id);
   assert(current_block_ &&
          "RegisterLoopMerge must be called when called within a block");
+  current_block_->RegisterStructuralSuccessor(&merge_block);
+  current_block_->RegisterStructuralSuccessor(&continue_target_block);
 
   current_block_->set_type(kBlockTypeLoop);
   merge_block.set_type(kBlockTypeMerge);
@@ -99,9 +99,10 @@ spv_result_t Function::RegisterLoopMerge(uint32_t merge_id,
 spv_result_t Function::RegisterSelectionMerge(uint32_t merge_id) {
   RegisterBlock(merge_id, false);
   BasicBlock& merge_block = blocks_.at(merge_id);
-  current_block_->set_type(kBlockTypeHeader);
+  current_block_->set_type(kBlockTypeSelection);
   merge_block.set_type(kBlockTypeMerge);
   merge_block_header_[&merge_block] = current_block_;
+  current_block_->RegisterStructuralSuccessor(&merge_block);
 
   AddConstruct({ConstructType::kSelection, current_block(), &merge_block});
 
@@ -131,16 +132,14 @@ spv_result_t Function::RegisterBlock(uint32_t block_id, bool is_definition) {
     undefined_blocks_.erase(block_id);
     current_block_ = &inserted_block->second;
     ordered_blocks_.push_back(current_block_);
-    if (IsFirstBlock(block_id)) current_block_->set_reachable(true);
-  } else if (success) {  // Block doesn't exsist but this is not a definition
+  } else if (success) {  // Block doesn't exist but this is not a definition
     undefined_blocks_.insert(block_id);
   }
 
   return SPV_SUCCESS;
 }
 
-void Function::RegisterBlockEnd(std::vector<uint32_t> next_list,
-                                SpvOp branch_instruction) {
+void Function::RegisterBlockEnd(std::vector<uint32_t> next_list) {
   assert(
       current_block_ &&
       "RegisterBlockEnd can only be called when parsing a binary in a block");
@@ -175,7 +174,6 @@ void Function::RegisterBlockEnd(std::vector<uint32_t> next_list,
     }
   }
 
-  current_block_->RegisterBranchInstruction(branch_instruction);
   current_block_->RegisterSuccessors(next_blocks);
   current_block_ = nullptr;
   return;
@@ -255,16 +253,6 @@ Function::GetBlocksFunction Function::AugmentedCFGSuccessorsFunction() const {
   };
 }
 
-Function::GetBlocksFunction
-Function::AugmentedCFGSuccessorsFunctionIncludingHeaderToContinueEdge() const {
-  return [this](const BasicBlock* block) {
-    auto where = loop_header_successors_plus_continue_target_map_.find(block);
-    return where == loop_header_successors_plus_continue_target_map_.end()
-               ? AugmentedCFGSuccessorsFunction()(block)
-               : &(*where).second;
-  };
-}
-
 Function::GetBlocksFunction Function::AugmentedCFGPredecessorsFunction() const {
   return [this](const BasicBlock* block) {
     auto where = augmented_predecessors_map_.find(block);
@@ -273,11 +261,35 @@ Function::GetBlocksFunction Function::AugmentedCFGPredecessorsFunction() const {
   };
 }
 
+Function::GetBlocksFunction Function::AugmentedStructuralCFGSuccessorsFunction()
+    const {
+  return [this](const BasicBlock* block) {
+    auto where = augmented_successors_map_.find(block);
+    return where == augmented_successors_map_.end()
+               ? block->structural_successors()
+               : &(*where).second;
+  };
+}
+
+Function::GetBlocksFunction
+Function::AugmentedStructuralCFGPredecessorsFunction() const {
+  return [this](const BasicBlock* block) {
+    auto where = augmented_predecessors_map_.find(block);
+    return where == augmented_predecessors_map_.end()
+               ? block->structural_predecessors()
+               : &(*where).second;
+  };
+}
+
 void Function::ComputeAugmentedCFG() {
   // Compute the successors of the pseudo-entry block, and
   // the predecessors of the pseudo exit block.
-  auto succ_func = [](const BasicBlock* b) { return b->successors(); };
-  auto pred_func = [](const BasicBlock* b) { return b->predecessors(); };
+  auto succ_func = [](const BasicBlock* b) {
+    return b->structural_successors();
+  };
+  auto pred_func = [](const BasicBlock* b) {
+    return b->structural_predecessors();
+  };
   CFA<BasicBlock>::ComputeAugmentedCFG(
       ordered_blocks_, &pseudo_entry_block_, &pseudo_exit_block_,
       &augmented_successors_map_, &augmented_predecessors_map_, succ_func,
@@ -312,18 +324,18 @@ int Function::GetBlockDepth(BasicBlock* bb) {
   if (block_depth_.find(bb) != block_depth_.end()) {
     return block_depth_[bb];
   }
+  // Avoid recursion. Something is wrong if the same block is encountered
+  // multiple times.
+  block_depth_[bb] = 0;
 
   BasicBlock* bb_dom = bb->immediate_dominator();
   if (!bb_dom || bb == bb_dom) {
     // This block has no dominator, so it's at depth 0.
     block_depth_[bb] = 0;
-  } else if (bb->is_type(kBlockTypeMerge)) {
-    // If this is a merge block, its depth is equal to the block before
-    // branching.
-    BasicBlock* header = merge_block_header_[bb];
-    assert(header);
-    block_depth_[bb] = GetBlockDepth(header);
   } else if (bb->is_type(kBlockTypeContinue)) {
+    // This rule must precede the rule for merge blocks in order to set up
+    // depths correctly. If a block is both a merge and continue then the merge
+    // is nested within the continue's loop (or the graph is incorrect).
     // The depth of the continue block entry point is 1 + loop header depth.
     Construct* continue_construct =
         entry_block_to_construct_[std::make_pair(bb, ConstructType::kContinue)];
@@ -341,7 +353,13 @@ int Function::GetBlockDepth(BasicBlock* bb) {
     } else {
       block_depth_[bb] = 1 + GetBlockDepth(loop_header);
     }
-  } else if (bb_dom->is_type(kBlockTypeHeader) ||
+  } else if (bb->is_type(kBlockTypeMerge)) {
+    // If this is a merge block, its depth is equal to the block before
+    // branching.
+    BasicBlock* header = merge_block_header_[bb];
+    assert(header);
+    block_depth_[bb] = GetBlockDepth(header);
+  } else if (bb_dom->is_type(kBlockTypeSelection) ||
              bb_dom->is_type(kBlockTypeLoop)) {
     // The dominator of the given block is a header block. So, the nesting
     // depth of this block is: 1 + nesting depth of the header.
@@ -352,10 +370,10 @@ int Function::GetBlockDepth(BasicBlock* bb) {
   return block_depth_[bb];
 }
 
-void Function::RegisterExecutionModelLimitation(SpvExecutionModel model,
+void Function::RegisterExecutionModelLimitation(spv::ExecutionModel model,
                                                 const std::string& message) {
   execution_model_limitations_.push_back(
-      [model, message](SpvExecutionModel in_model, std::string* out_message) {
+      [model, message](spv::ExecutionModel in_model, std::string* out_message) {
         if (model != in_model) {
           if (out_message) {
             *out_message = message;
@@ -366,7 +384,7 @@ void Function::RegisterExecutionModelLimitation(SpvExecutionModel model,
       });
 }
 
-bool Function::IsCompatibleWithExecutionModel(SpvExecutionModel model,
+bool Function::IsCompatibleWithExecutionModel(spv::ExecutionModel model,
                                               std::string* reason) const {
   bool return_value = true;
   std::stringstream ss_reason;
@@ -374,6 +392,30 @@ bool Function::IsCompatibleWithExecutionModel(SpvExecutionModel model,
   for (const auto& is_compatible : execution_model_limitations_) {
     std::string message;
     if (!is_compatible(model, &message)) {
+      if (!reason) return false;
+      return_value = false;
+      if (!message.empty()) {
+        ss_reason << message << "\n";
+      }
+    }
+  }
+
+  if (!return_value && reason) {
+    *reason = ss_reason.str();
+  }
+
+  return return_value;
+}
+
+bool Function::CheckLimitations(const ValidationState_t& _,
+                                const Function* entry_point,
+                                std::string* reason) const {
+  bool return_value = true;
+  std::stringstream ss_reason;
+
+  for (const auto& is_compatible : limitations_) {
+    std::string message;
+    if (!is_compatible(_, entry_point, &message)) {
       if (!reason) return false;
       return_value = false;
       if (!message.empty()) {

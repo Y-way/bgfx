@@ -1,6 +1,6 @@
 /*
  * Copyright 2018 Kostas Anagnostou. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 /*
@@ -61,7 +61,7 @@ struct Camera
 
 		const bx::Vec3 toTarget     = bx::sub(m_target.dest, m_pos.dest);
 		const float toTargetLen     = bx::length(toTarget);
-		const float invToTargetLen  = 1.0f / (toTargetLen + bx::kFloatMin);
+		const float invToTargetLen  = 1.0f / (toTargetLen + bx::kFloatSmallest);
 		const bx::Vec3 toTargetNorm = bx::mul(toTarget, invToTargetLen);
 
 		float delta  = toTargetLen * _dz;
@@ -83,7 +83,7 @@ struct Camera
 
 		const bx::Vec3 toPos     = bx::sub(m_pos.curr, m_target.curr);
 		const float toPosLen     = bx::length(toPos);
-		const float invToPosLen  = 1.0f / (toPosLen + bx::kFloatMin);
+		const float invToPosLen  = 1.0f / (toPosLen + bx::kFloatSmallest);
 		const bx::Vec3 toPosNorm = bx::mul(toPos, invToPosLen);
 
 		float ll[2];
@@ -113,7 +113,7 @@ struct Camera
 	{
 		const bx::Vec3 toTarget     = bx::sub(m_target.curr, m_pos.curr);
 		const float toTargetLen     = bx::length(toTarget);
-		const float invToTargetLen  = 1.0f / (toTargetLen + bx::kFloatMin);
+		const float invToTargetLen  = 1.0f / (toTargetLen + bx::kFloatSmallest);
 		const bx::Vec3 toTargetNorm = bx::mul(toTarget, invToTargetLen);
 
 		const bx::Vec3 right = bx::normalize(bx::cross({ 0.0f, 1.0f, 0.0f }, toTargetNorm) );
@@ -139,8 +139,8 @@ struct Camera
 
 	struct Interp3f
 	{
-		bx::Vec3 curr;
-		bx::Vec3 dest;
+		bx::Vec3 curr = bx::InitNone;
+		bx::Vec3 dest = bx::InitNone;
 	};
 
 	Interp3f m_target;
@@ -193,16 +193,16 @@ struct PosVertex
 
 	static void init()
 	{
-		ms_decl
+		ms_layout
 			.begin()
 			.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
 			.end();
 	};
 
-	static bgfx::VertexDecl ms_decl;
+	static bgfx::VertexLayout ms_layout;
 };
 
-bgfx::VertexDecl PosVertex::ms_decl;
+bgfx::VertexLayout PosVertex::ms_layout;
 
 static PosVertex s_cubeVertices[8] =
 {
@@ -287,12 +287,12 @@ void createCubeMesh(Prop& prop)
 	prop.m_vertices = new PosVertex[prop.m_noofVertices];
 	prop.m_indices = new uint16_t[prop.m_noofIndices];
 
-	bx::memCopy(prop.m_vertices, s_cubeVertices, prop.m_noofVertices * PosVertex::ms_decl.getStride());
+	bx::memCopy(prop.m_vertices, s_cubeVertices, prop.m_noofVertices * PosVertex::ms_layout.getStride());
 	bx::memCopy(prop.m_indices, s_cubeIndices, prop.m_noofIndices * sizeof(uint16_t));
 
 	prop.m_vertexbufferHandle = bgfx::createVertexBuffer(
-		bgfx::makeRef(prop.m_vertices, prop.m_noofVertices * PosVertex::ms_decl.getStride()),
-		PosVertex::ms_decl);
+		bgfx::makeRef(prop.m_vertices, prop.m_noofVertices * PosVertex::ms_layout.getStride()),
+		PosVertex::ms_layout);
 
 	prop.m_indexbufferHandle = bgfx::createIndexBuffer(bgfx::makeRef(prop.m_indices, prop.m_noofIndices * sizeof(uint16_t)));
 }
@@ -306,8 +306,8 @@ float rand01()
 class GPUDrivenRendering : public entry::AppI
 {
 public:
-	GPUDrivenRendering(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	GPUDrivenRendering(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -328,6 +328,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
@@ -510,7 +513,7 @@ public:
 				;
 
 			// Create buffers for the HiZ pass
-			m_hiZDepthBuffer = bgfx::createFrameBuffer(uint16_t(m_hiZwidth), uint16_t(m_hiZheight), bgfx::TextureFormat::D32, tsFlags);
+			m_hiZDepthBuffer = bgfx::createFrameBuffer(uint16_t(m_hiZwidth), uint16_t(m_hiZheight), bgfx::TextureFormat::D32F, tsFlags);
 
 			bgfx::TextureHandle buffer = bgfx::createTexture2D(uint16_t(m_hiZwidth), uint16_t(m_hiZheight), true, 1, bgfx::TextureFormat::R32F, BGFX_TEXTURE_COMPUTE_WRITE | tsFlags);
 			m_hiZBuffer = bgfx::createFrameBuffer(1, &buffer, true);
@@ -528,8 +531,8 @@ public:
 
 			//bounding box for each instance, will be fed to the compute shader to calculate occlusion
 			{
-				bgfx::VertexDecl computeVertexDecl;
-				computeVertexDecl.begin()
+				bgfx::VertexLayout computeVertexLayout;
+				computeVertexLayout.begin()
 					.add(bgfx::Attrib::TexCoord0, 4, bgfx::AttribType::Float)
 					.end();
 
@@ -557,13 +560,13 @@ public:
 
 				const bgfx::Memory* mem = bgfx::makeRef(boundingBoxes, sizeof(float) * sizeOfBuffer);
 
-				m_instanceBoundingBoxes = bgfx::createDynamicVertexBuffer(mem, computeVertexDecl, BGFX_BUFFER_COMPUTE_READ);
+				m_instanceBoundingBoxes = bgfx::createDynamicVertexBuffer(mem, computeVertexLayout, BGFX_BUFFER_COMPUTE_READ);
 			}
 
 			//pre and post occlusion culling instance data buffers
 			{
-				bgfx::VertexDecl instanceBufferVertexDecl;
-				instanceBufferVertexDecl.begin()
+				bgfx::VertexLayout instanceBufferVertexLayout;
+				instanceBufferVertexLayout.begin()
 					.add(bgfx::Attrib::TexCoord0, 4, bgfx::AttribType::Float)
 					.add(bgfx::Attrib::TexCoord1, 4, bgfx::AttribType::Float)
 					.add(bgfx::Attrib::TexCoord2, 4, bgfx::AttribType::Float)
@@ -593,10 +596,10 @@ public:
 				const bgfx::Memory* mem = bgfx::makeRef(instanceData, sizeof(float) * sizeOfBuffer);
 
 				//pre occlusion buffer
-				m_instanceBuffer = bgfx::createVertexBuffer(mem, instanceBufferVertexDecl, BGFX_BUFFER_COMPUTE_READ);
+				m_instanceBuffer = bgfx::createVertexBuffer(mem, instanceBufferVertexLayout, BGFX_BUFFER_COMPUTE_READ);
 
 				//post occlusion buffer
-				m_culledInstanceBuffer = bgfx::createDynamicVertexBuffer(4 * m_totalInstancesCount, instanceBufferVertexDecl, BGFX_BUFFER_COMPUTE_WRITE);
+				m_culledInstanceBuffer = bgfx::createDynamicVertexBuffer(4 * m_totalInstancesCount, instanceBufferVertexLayout, BGFX_BUFFER_COMPUTE_WRITE);
 			}
 
 			//we use one "drawcall" per prop to render all its instances
@@ -677,8 +680,8 @@ public:
 
 		// Create master vertex buffer
 		m_allPropsVertexbufferHandle = bgfx::createVertexBuffer(
-					  bgfx::makeRef(m_allPropVerticesDataCPU, totalNoofVertices * PosVertex::ms_decl.getStride())
-					, PosVertex::ms_decl
+					  bgfx::makeRef(m_allPropVerticesDataCPU, totalNoofVertices * PosVertex::ms_layout.getStride())
+					, PosVertex::ms_layout
 					);
 
 		// Create master index buffer.
@@ -695,6 +698,7 @@ public:
 		m_timeOffset = bx::getHPCounter();
 
 		m_useIndirect = true;
+		m_firstFrame = true;
 
 		imguiCreate();
 	}
@@ -823,7 +827,7 @@ public:
 
 			bgfx::setTexture(0, s_texOcclusionDepth, getTexture(m_hiZDepthBuffer, 0));
 			bgfx::setImage(1, getTexture(m_hiZBuffer,      0), 0, bgfx::Access::Write);
-		
+
 			bgfx::dispatch(RENDER_PASS_HIZ_DOWNSCALE_ID, m_programCopyZ, width/16, height/16);
 		}
 
@@ -916,7 +920,9 @@ public:
 		// Set "material" data (currently a color only)
 		bgfx::setUniform(u_color, &m_materials[0].m_color, m_noofMaterials);
 
-		if (m_useIndirect)
+		// We can't use indirect drawing for the first frame because the content of m_drawcallInstanceCounts
+		// is initially undefined.
+		if (m_useIndirect && !m_firstFrame)
 		{
 			// Set vertex and index buffer.
 			bgfx::setVertexBuffer(0, m_allPropsVertexbufferHandle);
@@ -967,6 +973,7 @@ public:
 				}
 			}
 		}
+		m_firstFrame = false;
 	}
 
 	bool update() override
@@ -1131,6 +1138,7 @@ public:
 	uint8_t m_noofHiZMips;
 
 	bool m_useIndirect;
+	bool m_firstFrame;
 
 	Camera m_camera;
 	Mouse m_mouse;
@@ -1138,4 +1146,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(GPUDrivenRendering, "37-gpudrivenrendering", "GPU-Driven Rendering.");
+ENTRY_IMPLEMENT_MAIN(
+	  GPUDrivenRendering
+	, "37-gpudrivenrendering"
+	, "GPU-Driven Rendering."
+	, "https://bkaradzic.github.io/bgfx/examples.html#gpudrivenrendering"
+	);

@@ -43,15 +43,25 @@ struct spv_validator_options_t {
         relax_struct_store(false),
         relax_logical_pointer(false),
         relax_block_layout(false),
+        uniform_buffer_standard_layout(false),
         scalar_block_layout(false),
-        skip_block_layout(false) {}
+        workgroup_scalar_block_layout(false),
+        skip_block_layout(false),
+        allow_localsizeid(false),
+        before_hlsl_legalization(false),
+        use_friendly_names(true) {}
 
   validator_universal_limits_t universal_limits_;
   bool relax_struct_store;
   bool relax_logical_pointer;
   bool relax_block_layout;
+  bool uniform_buffer_standard_layout;
   bool scalar_block_layout;
+  bool workgroup_scalar_block_layout;
   bool skip_block_layout;
+  bool allow_localsizeid;
+  bool before_hlsl_legalization;
+  bool use_friendly_names;
 };
 
 #endif  // SOURCE_SPIRV_VALIDATOR_OPTIONS_H_

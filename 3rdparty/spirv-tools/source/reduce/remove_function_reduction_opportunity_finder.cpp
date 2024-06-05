@@ -12,15 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "remove_function_reduction_opportunity_finder.h"
-#include "remove_function_reduction_opportunity.h"
+#include "source/reduce/remove_function_reduction_opportunity_finder.h"
+
+#include "source/reduce/remove_function_reduction_opportunity.h"
 
 namespace spvtools {
 namespace reduce {
 
 std::vector<std::unique_ptr<ReductionOpportunity>>
 RemoveFunctionReductionOpportunityFinder::GetAvailableOpportunities(
-    opt::IRContext* context) const {
+    opt::IRContext* context, uint32_t target_function) const {
+  if (target_function) {
+    // If we are targeting a specific function then we are only interested in
+    // opportunities that simplify the internals of that function; removing
+    // whole functions does not fit the bill.
+    return {};
+  }
+
   std::vector<std::unique_ptr<ReductionOpportunity>> result;
   // Consider each function.
   for (auto& function : *context->module()) {

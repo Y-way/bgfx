@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include <bgfx/bgfx.h>
@@ -37,7 +37,7 @@ struct PosColorTexCoord0Vertex
 
 	static void init()
 	{
-		ms_decl
+		ms_layout
 			.begin()
 			.add(bgfx::Attrib::Position,  3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::Color0,    4, bgfx::AttribType::Uint8, true)
@@ -45,10 +45,10 @@ struct PosColorTexCoord0Vertex
 			.end();
 	}
 
-	static bgfx::VertexDecl ms_decl;
+	static bgfx::VertexLayout ms_layout;
 };
 
-bgfx::VertexDecl PosColorTexCoord0Vertex::ms_decl;
+bgfx::VertexLayout PosColorTexCoord0Vertex::ms_layout;
 
 void EmitterUniforms::reset()
 {
@@ -190,7 +190,7 @@ namespace ps
 			m_dt = 0.0f;
 			m_uniforms.reset();
 			m_num = 0;
-			bx::memSet(&m_aabb, 0, sizeof(Aabb) );
+			bx::memSet(&m_aabb, 0, sizeof(bx::Aabb) );
 
 			m_rng.reset();
 		}
@@ -248,7 +248,7 @@ namespace ps
 				Particle& particle = m_particles[m_num];
 				m_num++;
 
-				bx::Vec3 pos;
+				bx::Vec3 pos(bx::InitNone);
 				switch (m_shape)
 				{
 					default:
@@ -281,7 +281,7 @@ namespace ps
 						break;
 				}
 
-				bx::Vec3 dir;
+				bx::Vec3 dir(bx::InitNone);
 				switch (m_direction)
 				{
 					default:
@@ -329,10 +329,10 @@ namespace ps
 			bx::EaseFn easeBlend = bx::getEaseFunc(m_uniforms.m_easeBlend);
 			bx::EaseFn easeScale = bx::getEaseFunc(m_uniforms.m_easeScale);
 
-			Aabb aabb =
+			bx::Aabb aabb =
 			{
-				{  bx::kInfinity,  bx::kInfinity,  bx::kInfinity },
-				{ -bx::kInfinity, -bx::kInfinity, -bx::kInfinity },
+				{  bx::kFloatInfinity,  bx::kFloatInfinity,  bx::kFloatInfinity },
+				{ -bx::kFloatInfinity, -bx::kFloatInfinity, -bx::kFloatInfinity },
 			};
 
 			for (uint32_t jj = 0, num = m_num, current = _first
@@ -425,7 +425,7 @@ namespace ps
 		bx::RngMwc      m_rng;
 		EmitterUniforms m_uniforms;
 
-		Aabb m_aabb;
+		bx::Aabb m_aabb;
 
 		Particle* m_particles;
 		uint32_t m_num;
@@ -452,7 +452,7 @@ namespace ps
 			}
 
 			m_emitterAlloc = bx::createHandleAlloc(m_allocator, _maxEmitters);
-			m_emitter = (Emitter*)BX_ALLOC(m_allocator, sizeof(Emitter)*_maxEmitters);
+			m_emitter = (Emitter*)bx::alloc(m_allocator, sizeof(Emitter)*_maxEmitters);
 
 			PosColorTexCoord0Vertex::init();
 
@@ -482,7 +482,7 @@ namespace ps
 			bgfx::destroy(s_texColor);
 
 			bx::destroyHandleAlloc(m_allocator, m_emitterAlloc);
-			BX_FREE(m_allocator, m_emitter);
+			bx::free(m_allocator, m_emitter);
 
 			m_allocator = NULL;
 		}
@@ -535,7 +535,7 @@ namespace ps
 				bgfx::TransientVertexBuffer tvb;
 				bgfx::TransientIndexBuffer tib;
 
-				const uint32_t numVertices = bgfx::getAvailTransientVertexBuffer(m_num*4, PosColorTexCoord0Vertex::ms_decl);
+				const uint32_t numVertices = bgfx::getAvailTransientVertexBuffer(m_num*4, PosColorTexCoord0Vertex::ms_layout);
 				const uint32_t numIndices  = bgfx::getAvailTransientIndexBuffer(m_num*6);
 				const uint32_t max = bx::uint32_min(numVertices/4, numIndices/6);
 				BX_WARN(m_num == max
@@ -547,14 +547,14 @@ namespace ps
 				if (0 < max)
 				{
 					bgfx::allocTransientBuffers(&tvb
-						, PosColorTexCoord0Vertex::ms_decl
+						, PosColorTexCoord0Vertex::ms_layout
 						, max*4
 						, &tib
 						, max*6
 						);
 					PosColorTexCoord0Vertex* vertices = (PosColorTexCoord0Vertex*)tvb.data;
 
-					ParticleSort* particleSort = (ParticleSort*)BX_ALLOC(m_allocator, max*sizeof(ParticleSort) );
+					ParticleSort* particleSort = (ParticleSort*)bx::alloc(m_allocator, max*sizeof(ParticleSort) );
 
 					uint32_t pos = 0;
 					for (uint16_t ii = 0, numEmitters = m_emitterAlloc->getNumHandles(); ii < numEmitters; ++ii)
@@ -595,7 +595,7 @@ namespace ps
 						index[5] = idx*4+0;
 					}
 
-					BX_FREE(m_allocator, particleSort);
+					bx::free(m_allocator, particleSort);
 
 					bgfx::setState(0
 						| BGFX_STATE_WRITE_RGB
@@ -626,7 +626,7 @@ namespace ps
 
 		void updateEmitter(EmitterHandle _handle, const EmitterUniforms* _uniforms)
 		{
-			BX_CHECK(m_emitterAlloc.isValid(_handle.idx)
+			BX_ASSERT(isValid(_handle)
 				, "destroyEmitter handle %d is not valid."
 				, _handle.idx
 				);
@@ -643,9 +643,9 @@ namespace ps
 			}
 		}
 
-		void getAabb(EmitterHandle _handle, Aabb& _outAabb)
+		void getAabb(EmitterHandle _handle, bx::Aabb& _outAabb)
 		{
-			BX_CHECK(m_emitterAlloc.isValid(_handle.idx)
+			BX_ASSERT(isValid(_handle)
 				, "getAabb handle %d is not valid."
 				, _handle.idx
 				);
@@ -654,7 +654,7 @@ namespace ps
 
 		void destroyEmitter(EmitterHandle _handle)
 		{
-			BX_CHECK(m_emitterAlloc.isValid(_handle.idx)
+			BX_ASSERT(isValid(_handle)
 				, "destroyEmitter handle %d is not valid."
 				, _handle.idx
 				);
@@ -687,12 +687,12 @@ namespace ps
 		m_shape     = _shape;
 		m_direction = _direction;
 		m_max       = _maxParticles;
-		m_particles = (Particle*)BX_ALLOC(s_ctx.m_allocator, m_max*sizeof(Particle) );
+		m_particles = (Particle*)bx::alloc(s_ctx.m_allocator, m_max*sizeof(Particle) );
 	}
 
 	void Emitter::destroy()
 	{
-		BX_FREE(s_ctx.m_allocator, m_particles);
+		bx::free(s_ctx.m_allocator, m_particles);
 		m_particles = NULL;
 	}
 
@@ -730,7 +730,7 @@ void psUpdateEmitter(EmitterHandle _handle, const EmitterUniforms* _uniforms)
 	s_ctx.updateEmitter(_handle, _uniforms);
 }
 
-void psGetAabb(EmitterHandle _handle, Aabb& _outAabb)
+void psGetAabb(EmitterHandle _handle, bx::Aabb& _outAabb)
 {
 	s_ctx.getAabb(_handle, _outAabb);
 }

@@ -1,6 +1,6 @@
 /*
  * Copyright 2011-2015 Attila Kocsis, Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #ifndef BGFX_RENDERER_METAL_H_HEADER_GUARD
@@ -14,16 +14,35 @@
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
 
-#if BX_PLATFORM_IOS
+#if BX_PLATFORM_IOS || BX_PLATFORM_VISIONOS
 #	import <UIKit/UIKit.h>
 #endif // BX_PLATFORM_*
+
+#if BX_PLATFORM_VISIONOS
+#import <CompositorServices/CompositorServices.h>
+#endif
+
+#define BGFX_MTL_PROFILER_BEGIN(_view, _abgr)         \
+	BX_MACRO_BLOCK_BEGIN                              \
+		BGFX_PROFILER_BEGIN(s_viewName[view], _abgr); \
+	BX_MACRO_BLOCK_END
+
+#define BGFX_MTL_PROFILER_BEGIN_LITERAL(_name, _abgr) \
+	BX_MACRO_BLOCK_BEGIN                              \
+		BGFX_PROFILER_BEGIN_LITERAL("" _name, _abgr); \
+	BX_MACRO_BLOCK_END
+
+#define BGFX_MTL_PROFILER_END() \
+	BX_MACRO_BLOCK_BEGIN        \
+		BGFX_PROFILER_END();    \
+	BX_MACRO_BLOCK_END
 
 namespace bgfx { namespace mtl
 {
 	//runtime os check
 	inline bool iOSVersionEqualOrGreater(const char* _version)
 	{
-#if BX_PLATFORM_IOS
+#if BX_PLATFORM_IOS || BX_PLATFORM_VISIONOS
 		return ([[[UIDevice currentDevice] systemVersion] compare:@(_version) options:NSNumericSearch] != NSOrderedAscending);
 #else
 		BX_UNUSED(_version);
@@ -47,12 +66,9 @@ namespace bgfx { namespace mtl
 #endif
 	}
 
-
 	// c++ wrapper
 	// objects with creation functions starting with 'new' has a refcount 1 after creation, object must be destroyed with release.
 	// commandBuffer, commandEncoders are autoreleased objects. Needs AutoreleasePool!
-
-#define MTL_MAX_FRAMES_IN_FLIGHT (3)
 
 #define MTL_CLASS(name)                                   \
 	class name                                            \
@@ -64,7 +80,7 @@ namespace bgfx { namespace mtl
 
 #define MTL_CLASS_END };
 
-		typedef void (*mtlCallback)(void* userData);
+	typedef void (*mtlCallback)(void* userData);
 
 	MTL_CLASS(BlitCommandEncoder)
 		void copyFromTexture(
@@ -110,6 +126,11 @@ namespace bgfx { namespace mtl
 			[m_obj copyFromBuffer:_sourceBuffer sourceOffset:_sourceOffset sourceBytesPerRow:_sourceBytesPerRow
 			  sourceBytesPerImage:_sourceBytesPerImage sourceSize:_sourceSize toTexture:_destinationTexture
 				 destinationSlice:_destinationSlice destinationLevel:_destinationLevel destinationOrigin:_destinationOrigin];
+		}
+
+		void generateMipmapsForTexture(id<MTLTexture> _texture)
+		{
+			[m_obj generateMipmapsForTexture:_texture];
 		}
 
 #if BX_PLATFORM_OSX
@@ -233,8 +254,11 @@ namespace bgfx { namespace mtl
 			[m_obj dispatchThreadgroups:_threadgroupsPerGrid threadsPerThreadgroup:_threadsPerThreadgroup];
 		}
 
-		void dispatchThreadgroupsWithIndirectBuffer(id <MTLBuffer> _indirectBuffer,
-												NSUInteger _indirectBufferOffset, MTLSize _threadsPerThreadgroup)
+		void dispatchThreadgroupsWithIndirectBuffer(
+			  id <MTLBuffer> _indirectBuffer
+			, NSUInteger _indirectBufferOffset
+			, MTLSize _threadsPerThreadgroup
+			)
 		{
 			[m_obj dispatchThreadgroupsWithIndirectBuffer:_indirectBuffer indirectBufferOffset:_indirectBufferOffset threadsPerThreadgroup:_threadsPerThreadgroup];
 		}
@@ -256,9 +280,9 @@ namespace bgfx { namespace mtl
 	MTL_CLASS_END
 
 	MTL_CLASS(Device)
-		bool supportsFeatureSet(MTLFeatureSet _featureSet)
+		bool supportsFamily(MTLGPUFamily _featureSet)
 		{
-			return [m_obj supportsFeatureSet:_featureSet];
+			return [m_obj supportsFamily:_featureSet];
 		}
 
 		id<MTLLibrary> newLibraryWithData(const void* _data)
@@ -366,7 +390,7 @@ namespace bgfx { namespace mtl
 
 		bool supportsTextureSampleCount(int sampleCount)
 		{
-			if (BX_ENABLED(BX_PLATFORM_IOS) && !iOSVersionEqualOrGreater("9.0.0") )
+			if (BX_ENABLED(BX_PLATFORM_VISIONOS) || (BX_ENABLED(BX_PLATFORM_IOS) && !iOSVersionEqualOrGreater("9.0.0")) )
 				return sampleCount == 1 || sampleCount == 2 ||  sampleCount == 4;
 			else
 				return [m_obj supportsTextureSampleCount:sampleCount];
@@ -374,11 +398,11 @@ namespace bgfx { namespace mtl
 
 		bool depth24Stencil8PixelFormatSupported()
 		{
-#if BX_PLATFORM_IOS
+#if BX_PLATFORM_IOS || BX_PLATFORM_VISIONOS
 			return false;
 #else
 			return m_obj.depth24Stencil8PixelFormatSupported;
-#endif // BX_PLATFORM_IOS
+#endif // BX_PLATFORM_IOS || BX_PLATFORM_VISIONOS
 		}
 	MTL_CLASS_END
 
@@ -709,11 +733,11 @@ namespace bgfx { namespace mtl
 		return [_str UTF8String];
 	}
 
-#define MTL_RELEASE(_obj)        \
-			BX_MACRO_BLOCK_BEGIN \
-				[_obj release];  \
-				_obj = nil;      \
-			BX_MACRO_BLOCK_END
+#define MTL_RELEASE(_obj) \
+	BX_MACRO_BLOCK_BEGIN  \
+		[_obj release];   \
+		_obj = NULL;      \
+	BX_MACRO_BLOCK_END
 
 	// end of c++ wrapper
 
@@ -785,7 +809,7 @@ namespace bgfx { namespace mtl
 
 			if (NULL != m_dynamic)
 			{
-				BX_DELETE(g_allocator, m_dynamic);
+				bx::deleteObject(g_allocator, m_dynamic);
 				m_dynamic = NULL;
 			}
 		}
@@ -807,9 +831,9 @@ namespace bgfx { namespace mtl
 		{
 		}
 
-		void create(uint32_t _size, void* _data, VertexDeclHandle _declHandle, uint16_t _flags);
+		void create(uint32_t _size, void* _data, VertexLayoutHandle _layoutHandle, uint16_t _flags);
 
-		VertexDeclHandle m_decl;
+		VertexLayoutHandle m_layoutHandle;
 	};
 
 
@@ -830,13 +854,6 @@ namespace bgfx { namespace mtl
 		Function m_function;
 		uint32_t m_hash;
 		uint16_t m_numThreads[3];
-	};
-
-	struct SamplerInfo
-	{
-		uint32_t      m_index;
-		UniformHandle m_uniform;
-		bool          m_fragment;
 	};
 
 	struct PipelineStateMtl;
@@ -869,10 +886,9 @@ namespace bgfx { namespace mtl
 			: m_vshConstantBuffer(NULL)
 			, m_fshConstantBuffer(NULL)
 			, m_vshConstantBufferSize(0)
-			, m_vshConstantBufferAlignmentMask(0)
+			, m_vshConstantBufferAlignment(0)
 			, m_fshConstantBufferSize(0)
-			, m_fshConstantBufferAlignmentMask(0)
-			, m_samplerCount(0)
+			, m_fshConstantBufferAlignment(0)
 			, m_numPredefined(0)
 			, m_rps(NULL)
 			, m_cps(NULL)
@@ -880,6 +896,8 @@ namespace bgfx { namespace mtl
 				m_numThreads[0] = 1;
 				m_numThreads[1] = 1;
 				m_numThreads[2] = 1;
+				for(uint32_t i=0; i<BGFX_CONFIG_MAX_TEXTURE_SAMPLERS; ++i)
+					m_bindingTypes[i] = 0;
 			}
 
 		~PipelineStateMtl()
@@ -904,12 +922,16 @@ namespace bgfx { namespace mtl
 		UniformBuffer* m_fshConstantBuffer;
 
 		uint32_t m_vshConstantBufferSize;
-		uint32_t m_vshConstantBufferAlignmentMask;
+		uint32_t m_vshConstantBufferAlignment;
 		uint32_t m_fshConstantBufferSize;
-		uint32_t m_fshConstantBufferAlignmentMask;
+		uint32_t m_fshConstantBufferAlignment;
 
-		SamplerInfo m_samplers[BGFX_CONFIG_MAX_TEXTURE_SAMPLERS];
-		uint32_t	m_samplerCount;
+		enum
+		{
+			BindToVertexShader   = 1 << 0,
+			BindToFragmentShader = 1 << 1,
+		};
+		uint8_t m_bindingTypes[BGFX_CONFIG_MAX_TEXTURE_SAMPLERS];
 
 		uint16_t 	m_numThreads[3];
 
@@ -922,7 +944,7 @@ namespace bgfx { namespace mtl
 
 	void release(PipelineStateMtl* _ptr)
 	{
-		BX_DELETE(g_allocator, _ptr);
+		bx::deleteObject(g_allocator, _ptr);
 	}
 
 	struct TextureMtl
@@ -955,12 +977,23 @@ namespace bgfx { namespace mtl
 
 		void destroy()
 		{
-			MTL_RELEASE(m_ptr);
+			if (0 == (m_flags & BGFX_SAMPLER_INTERNAL_SHARED))
+			{
+				MTL_RELEASE(m_ptr);
+				MTL_RELEASE(m_ptrMsaa);
+			}
 			MTL_RELEASE(m_ptrStencil);
 			for (uint32_t ii = 0; ii < m_numMips; ++ii)
 			{
 				MTL_RELEASE(m_ptrMips[ii]);
 			}
+		}
+
+		void overrideInternal(uintptr_t _ptr)
+		{
+			destroy();
+			m_flags |= BGFX_SAMPLER_INTERNAL_SHARED;
+			m_ptr = id<MTLTexture>(_ptr);
 		}
 
 		void update(
@@ -978,6 +1011,7 @@ namespace bgfx { namespace mtl
 			, bool _vertex
 			, bool _fragment
 			, uint32_t _flags = BGFX_SAMPLER_INTERNAL_DEFAULT
+			, uint8_t _mip = UINT8_MAX
 			);
 
 		Texture getTextureMipLevel(int _mip);
@@ -1002,7 +1036,12 @@ namespace bgfx { namespace mtl
 	struct SwapChainMtl
 	{
 		SwapChainMtl()
+#if BX_PLATFORM_VISIONOS
+            : m_layerRenderer(NULL)
+            , m_frame(NULL)
+#else
 			: m_metalLayer(nil)
+#endif
 			, m_drawable(nil)
 			, m_drawableTexture(nil)
 			, m_backBufferColorMsaa()
@@ -1015,17 +1054,25 @@ namespace bgfx { namespace mtl
 		~SwapChainMtl();
 
 		void init(void* _nwh);
-		void resize(FrameBufferMtl &_frameBuffer, uint32_t _width, uint32_t _height, uint32_t _flags);
+		void resize(FrameBufferMtl &_frameBuffer, uint32_t _width, uint32_t _height, uint32_t _flags, uint32_t _maximumDrawableCount);
 
 		id <MTLTexture> 	currentDrawableTexture();
 
+
+#if BX_PLATFORM_VISIONOS
+        cp_layer_renderer_t m_layerRenderer;
+        cp_frame_t m_frame;
+        cp_drawable_t m_drawable;
+#else
 		CAMetalLayer* m_metalLayer;
-		id <CAMetalDrawable> m_drawable;
+        id <CAMetalDrawable> m_drawable;
+#endif
 		id <MTLTexture> 	 m_drawableTexture;
 		Texture m_backBufferColorMsaa;
 		Texture m_backBufferDepth;
 		Texture m_backBufferStencil;
 		uint32_t m_maxAnisotropy;
+		void* m_nwh;
 	};
 
 	struct FrameBufferMtl
@@ -1051,6 +1098,8 @@ namespace bgfx { namespace mtl
 			);
 		void postReset();
 		uint16_t destroy();
+
+		void resolve();
 
 		SwapChainMtl* m_swapChain;
 		void* m_nwh;
@@ -1091,7 +1140,7 @@ namespace bgfx { namespace mtl
 		int m_releaseWriteIndex;
 		int m_releaseReadIndex;
 		typedef stl::vector<NSObject*> ResourceArray;
-		ResourceArray m_release[MTL_MAX_FRAMES_IN_FLIGHT];
+		ResourceArray m_release[BGFX_CONFIG_MAX_FRAME_LATENCY];
 	};
 
 	struct TimerQueryMtl
@@ -1103,15 +1152,33 @@ namespace bgfx { namespace mtl
 
 		void init();
 		void shutdown();
+		uint32_t begin(uint32_t _resultIdx, uint32_t _frameNum);
+		void end(uint32_t _idx);
 		void addHandlers(CommandBuffer& _commandBuffer);
 		bool get();
+
+		struct Result
+		{
+			void reset()
+			{
+				m_begin    = 0;
+				m_end      = 0;
+				m_pending  = 0;
+				m_frameNum = 0;
+			}
+
+			uint64_t m_begin;
+			uint64_t m_end;
+			uint32_t m_pending;
+			uint32_t m_frameNum; // TODO: implement (currently stays 0)
+		};
 
 		uint64_t m_begin;
 		uint64_t m_end;
 		uint64_t m_elapsed;
 		uint64_t m_frequency;
 
-		uint64_t m_result[4*2];
+		Result m_result[BGFX_CONFIG_MAX_VIEWS+1];
 		bx::RingBufferControl m_control;
 	};
 

@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include "common.h"
@@ -26,17 +26,17 @@ struct PosColorVertex
 
 	static void init()
 	{
-		ms_decl
+		ms_layout
 			.begin()
 			.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::Color0,   4, bgfx::AttribType::Uint8, true)
 			.end();
 	};
 
-	static bgfx::VertexDecl ms_decl;
+	static bgfx::VertexLayout ms_layout;
 };
 
-bgfx::VertexDecl PosColorVertex::ms_decl;
+bgfx::VertexLayout PosColorVertex::ms_layout;
 
 static PosColorVertex s_cubeVertices[8] =
 {
@@ -69,8 +69,8 @@ static const uint16_t s_cubeIndices[36] =
 class ExampleWindows : public entry::AppI
 {
 public:
-	ExampleWindows(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExampleWindows(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -86,6 +86,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
@@ -96,7 +99,7 @@ public:
 
 		if (swapChainSupported)
 		{
-			m_bindings = (InputBinding*)BX_ALLOC(entry::getAllocator(), sizeof(InputBinding)*3);
+			m_bindings = (InputBinding*)bx::alloc(entry::getAllocator(), sizeof(InputBinding)*3);
 			m_bindings[0].set(entry::Key::KeyC, entry::Modifier::None, 1, cmdCreateWindow,  this);
 			m_bindings[1].set(entry::Key::KeyD, entry::Modifier::None, 1, cmdDestroyWindow, this);
 			m_bindings[2].end();
@@ -126,7 +129,7 @@ public:
 		m_vbh = bgfx::createVertexBuffer(
 			  // Static data can be passed with bgfx::makeRef
 			  bgfx::makeRef(s_cubeVertices, sizeof(s_cubeVertices) )
-			, PosColorVertex::ms_decl
+			, PosColorVertex::ms_layout
 			);
 
 		// Create static index buffer.
@@ -158,7 +161,7 @@ public:
 		}
 
 		inputRemoveBindings("22-windows");
-		BX_FREE(entry::getAllocator(), m_bindings);
+		bx::free(entry::getAllocator(), m_bindings);
 
 		// Cleanup.
 		bgfx::destroy(m_ibh);
@@ -176,20 +179,6 @@ public:
 		if (!entry::processWindowEvents(m_state, m_debug, m_reset) )
 		{
 			entry::MouseState mouseState = m_state.m_mouse;
-
-			imguiBeginFrame(mouseState.m_mx
-				,  mouseState.m_my
-				, (mouseState.m_buttons[entry::MouseButton::Left  ] ? IMGUI_MBUT_LEFT   : 0)
-				| (mouseState.m_buttons[entry::MouseButton::Right ] ? IMGUI_MBUT_RIGHT  : 0)
-				| (mouseState.m_buttons[entry::MouseButton::Middle] ? IMGUI_MBUT_MIDDLE : 0)
-				,  mouseState.m_mz
-				, uint16_t(m_width)
-				, uint16_t(m_height)
-				);
-
-			showExampleDialog(this);
-
-			imguiEndFrame();
 
 			if (isValid(m_state.m_handle) )
 			{
@@ -230,6 +219,20 @@ public:
 					}
 				}
 			}
+
+			imguiBeginFrame(mouseState.m_mx
+				,  mouseState.m_my
+				, (mouseState.m_buttons[entry::MouseButton::Left  ] ? IMGUI_MBUT_LEFT   : 0)
+				| (mouseState.m_buttons[entry::MouseButton::Right ] ? IMGUI_MBUT_RIGHT  : 0)
+				| (mouseState.m_buttons[entry::MouseButton::Middle] ? IMGUI_MBUT_MIDDLE : 0)
+				,  mouseState.m_mz
+				, uint16_t(m_width)
+				, uint16_t(m_height)
+				);
+
+			showExampleDialog(this);
+
+			imguiEndFrame();
 
 			const bx::Vec3 at  = { 0.0f, 0.0f,   0.0f };
 			const bx::Vec3 eye = { 0.0f, 0.0f, -35.0f };
@@ -378,7 +381,12 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExampleWindows, "22-windows", "Rendering into multiple windows.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExampleWindows
+	, "22-windows"
+	, "Rendering into multiple windows."
+	, "https://bkaradzic.github.io/bgfx/examples.html#windows"
+	);
 
 void cmdCreateWindow(const void* _userData)
 {

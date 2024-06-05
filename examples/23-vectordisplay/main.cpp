@@ -1,6 +1,6 @@
 /*
  * Copyright 2014 Kai Jourdan. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  *
  */
 
@@ -22,23 +22,23 @@ struct PosColorVertex
 
 	static void init()
 	{
-		ms_decl
+		ms_layout
 			.begin()
 			.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
 			.end();
 	}
 
-	static bgfx::VertexDecl ms_decl;
+	static bgfx::VertexLayout ms_layout;
 };
 
-bgfx::VertexDecl PosColorVertex::ms_decl;
+bgfx::VertexLayout PosColorVertex::ms_layout;
 
 class ExampleVectorDisplay : public entry::AppI
 {
 public:
-	ExampleVectorDisplay(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExampleVectorDisplay(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -53,16 +53,14 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
 		bgfx::init(init);
 
-		const bgfx::RendererType::Enum renderer = bgfx::getRendererType();
-		float texelHalf = bgfx::RendererType::Direct3D9 == renderer ? 0.5f : 0.0f;
-		bool originBottomLeft = bgfx::RendererType::OpenGL == renderer
-		|| bgfx::RendererType::OpenGLES == renderer;
-		m_vd.init(originBottomLeft, texelHalf);
+		m_vd.init(bgfx::getCaps()->originBottomLeft);
 		m_vd.setup(uint16_t(m_width), uint16_t(m_height) );
 
 		// Enable debug text.
@@ -218,4 +216,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExampleVectorDisplay, "23-vectordisplay", "Rendering lines as oldschool vectors.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExampleVectorDisplay
+	, "23-vectordisplay"
+	, "Rendering lines as oldschool vectors."
+	, "https://bkaradzic.github.io/bgfx/examples.html#vectordisplay"
+	);

@@ -1,13 +1,14 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
- *
- * vim: set tabstop=4 expandtab:
  */
 
 /*
  *
- * AUTO GENERATED! DO NOT EDIT! ( source : $source )
+ * AUTO GENERATED FROM IDL! DO NOT EDIT! (source : $source)
+ *
+ * More info about IDL:
+ * https://gist.github.com/bkaradzic/05a1c86a6dd57bf86e2d828878e88dc2#bgfx-is-switching-to-idl-to-generate-api
  *
  */
 
@@ -33,7 +34,7 @@
 #    define BGFX_SHARED_LIB_USE 0
 #endif // BGFX_SHARED_LIB_USE
 
-#if BX_PLATFORM_WINDOWS
+#if BX_PLATFORM_WINDOWS || BX_PLATFORM_WINRT
 #   define BGFX_SYMBOL_EXPORT __declspec(dllexport)
 #   define BGFX_SYMBOL_IMPORT __declspec(dllimport)
 #else
@@ -86,7 +87,6 @@ typedef struct bgfx_callback_interface_s
 
 } bgfx_callback_interface_t;
 
-
 /**/
 typedef struct bgfx_callback_vtbl_s
 {
@@ -102,9 +102,12 @@ typedef struct bgfx_callback_vtbl_s
 	void (*capture_begin)(bgfx_callback_interface_t* _this, uint32_t _width, uint32_t _height, uint32_t _pitch, bgfx_texture_format_t _format, bool _yflip);
 	void (*capture_end)(bgfx_callback_interface_t* _this);
 	void (*capture_frame)(bgfx_callback_interface_t* _this, const void* _data, uint32_t _size);
+
 } bgfx_callback_vtbl_t;
 
 $chandles
+
+#define BGFX_HANDLE_IS_VALID(h) ((h).idx != UINT16_MAX)
 
 $cfuncptrs
 
@@ -112,6 +115,16 @@ $cstructs
 
 $c99decl
 
+/**/
+typedef enum bgfx_function_id
+{
+	$c99_functionid
+
+	BGFX_FUNCTION_ID_COUNT
+
+} bgfx_function_id_t;
+
+/**/
 struct bgfx_interface_vtbl
 {
 	$interface_struct

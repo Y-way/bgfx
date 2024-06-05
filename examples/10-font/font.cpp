@@ -1,6 +1,6 @@
 /*
  * Copyright 2013 Jeremie Roy. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include "common.h"
@@ -32,7 +32,7 @@ TrueTypeHandle loadTtf(FontManager* _fm, const char* _filePath)
 	if (NULL != data)
 	{
 		TrueTypeHandle handle = _fm->createTtf( (uint8_t*)data, size);
-		BX_FREE(entry::getAllocator(), data);
+		bx::free(entry::getAllocator(), data);
 		return handle;
 	}
 
@@ -54,8 +54,8 @@ static const char* s_fontFilePath[] =
 class ExampleFont : public entry::AppI
 {
 public:
-	ExampleFont(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExampleFont(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -71,6 +71,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
@@ -86,6 +89,10 @@ public:
 						   , 1.0f
 						   , 0
 						   );
+
+		// Initialize Imgui
+		// This initializes the same allocator used by stb_truetype, so must do that before creating the font manager
+		imguiCreate();
 
 		// Init the text rendering system.
 		m_fontManager = new FontManager(512);
@@ -186,8 +193,6 @@ public:
 
 		// Create a transient buffer for real-time data.
 		m_transientText = m_textBufferManager->createTextBuffer(FONT_TYPE_ALPHA, BufferType::Transient);
-
-		imguiCreate();
 	}
 
 	virtual int shutdown() override
@@ -264,18 +269,16 @@ public:
 			float view[16];
 			bx::mtxLookAt(view, eye, at);
 
-			const float centering = 0.5f;
-
 			// Setup a top-left ortho matrix for screen space drawing.
 			const bgfx::Caps* caps = bgfx::getCaps();
 			{
 				float ortho[16];
 				bx::mtxOrtho(
 					  ortho
-					, centering
-					, m_width  + centering
-					, m_height + centering
-					, centering
+					, 0.0f
+					, float(m_width)
+					, float(m_height)
+					, 0.0f
 					, 0.0f
 					, 100.0f
 					, 0.0f
@@ -329,4 +332,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExampleFont, "10-font", "Use the font system to display text and styled text.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExampleFont
+	, "10-font"
+	, "Use the font system to display text and styled text."
+	, "https://bkaradzic.github.io/bgfx/examples.html#font"
+	);

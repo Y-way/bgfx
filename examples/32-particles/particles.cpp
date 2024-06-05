@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include "common.h"
@@ -229,8 +229,8 @@ struct Emitter
 class ExampleParticles : public entry::AppI
 {
 public:
-	ExampleParticles(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExampleParticles(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -246,6 +246,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
@@ -333,7 +336,7 @@ public:
 			const double freq = double(bx::getHPFrequency() );
 			const float deltaTime = float(frameTime/freq);
 
-			cameraUpdate(deltaTime, m_mouseState);
+			cameraUpdate(deltaTime, m_mouseState, ImGui::MouseOverArea() );
 
 			float view[16];
 			cameraGetViewMtx(view);
@@ -417,7 +420,7 @@ public:
 
 			if (showBounds)
 			{
-				Aabb aabb;
+				bx::Aabb aabb;
 				psGetAabb(m_emitter[currentEmitter].m_handle, aabb);
 				dde.push();
 					dde.setWireframe(true);
@@ -452,4 +455,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExampleParticles, "32-particles", "Particles.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExampleParticles
+	, "32-particles"
+	, "Particles."
+	, "https://bkaradzic.github.io/bgfx/examples.html#particles"
+	);

@@ -15,6 +15,7 @@
 #ifndef SOURCE_OPT_SCALAR_REPLACEMENT_PASS_H_
 #define SOURCE_OPT_SCALAR_REPLACEMENT_PASS_H_
 
+#include <cassert>
 #include <cstdio>
 #include <memory>
 #include <queue>
@@ -23,23 +24,34 @@
 #include <vector>
 
 #include "source/opt/function.h"
-#include "source/opt/pass.h"
+#include "source/opt/mem_pass.h"
 #include "source/opt/type_manager.h"
 
 namespace spvtools {
 namespace opt {
 
 // Documented in optimizer.hpp
-class ScalarReplacementPass : public Pass {
+class ScalarReplacementPass : public MemPass {
  private:
-  static const uint32_t kDefaultLimit = 100;
+  static constexpr uint32_t kDefaultLimit = 100;
 
  public:
   ScalarReplacementPass(uint32_t limit = kDefaultLimit)
       : max_num_elements_(limit) {
-    name_[0] = '\0';
-    strcat(name_, "scalar-replacement=");
-    sprintf(&name_[strlen(name_)], "%d", max_num_elements_);
+    const auto num_to_write = snprintf(
+        name_, sizeof(name_), "scalar-replacement=%u", max_num_elements_);
+    assert(size_t(num_to_write) < sizeof(name_));
+    (void)num_to_write;  // Mark as unused
+
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    // ClusterFuzz/OSS-Fuzz is likely to yield examples with very large arrays.
+    // This can cause timeouts and memouts during fuzzing that
+    // are not classed as bugs. To avoid this noise, we set the
+    // max_num_elements_ to a smaller value for fuzzing.
+    max_num_elements_ =
+        (max_num_elements_ > 0 && max_num_elements_ < 100 ? max_num_elements_
+                                                          : 100);
+#endif
   }
 
   const char* name() const override { return name_; }
@@ -92,10 +104,10 @@ class ScalarReplacementPass : public Pass {
   // Returns true if the uses of |inst| are acceptable for scalarization.
   //
   // Recursively checks all the uses of |inst|. For |inst| specifically, only
-  // allows SpvOpAccessChain, SpvOpInBoundsAccessChain, SpvOpLoad and
-  // SpvOpStore. Access chains must have the first index be a compile-time
-  // constant. Subsequent uses of access chains (including other access chains)
-  // are checked in a more relaxed manner.
+  // allows spv::Op::OpAccessChain, spv::Op::OpInBoundsAccessChain,
+  // spv::Op::OpLoad and spv::Op::OpStore. Access chains must have the first
+  // index be a compile-time constant. Subsequent uses of access chains
+  // (including other access chains) are checked in a more relaxed manner.
   bool CheckUses(const Instruction* inst) const;
 
   // Helper function for the above |CheckUses|.
@@ -117,9 +129,12 @@ class ScalarReplacementPass : public Pass {
   // for element of the composite type. Uses of |inst| are updated as
   // appropriate. If the replacement variables are themselves scalarizable, they
   // get added to |worklist| for further processing. If any replacement
-  // variable ends up with no uses it is erased. Returns false if any
-  // subsequent access chain is out of bounds.
-  bool ReplaceVariable(Instruction* inst, std::queue<Instruction*>* worklist);
+  // variable ends up with no uses it is erased. Returns
+  //  - Status::SuccessWithoutChange if the variable could not be replaced.
+  //  - Status::SuccessWithChange if it made replacements.
+  //  - Status::Failure if it couldn't create replacement variables.
+  Pass::Status ReplaceVariable(Instruction* inst,
+                               std::queue<Instruction*>* worklist);
 
   // Returns the underlying storage type for |inst|.
   //
@@ -139,36 +154,37 @@ class ScalarReplacementPass : public Pass {
   // of |inst| and the store is not to volatile memory.
   bool CheckStore(const Instruction* inst, uint32_t index) const;
 
+  // Returns true if the DebugDeclare can be scalarized at |index|.
+  bool CheckDebugDeclare(uint32_t index) const;
+
+  // Returns true if |index| is the pointer operand of an OpImageTexelPointer
+  // instruction.
+  bool CheckImageTexelPointer(uint32_t index) const;
+
   // Creates a variable of type |typeId| from the |index|'th element of
-  // |varInst|. The new variable is added to |replacements|.
+  // |varInst|. The new variable is added to |replacements|.  If the variable
+  // could not be created, then |nullptr| is appended to |replacements|.
   void CreateVariable(uint32_t typeId, Instruction* varInst, uint32_t index,
                       std::vector<Instruction*>* replacements);
 
   // Populates |replacements| with a new OpVariable for each element of |inst|.
+  // Returns true if the replacement variables were successfully created.
   //
   // |inst| must be an OpVariable of a composite type. New variables are
   // initialized the same as the corresponding index in |inst|. |replacements|
   // will contain a variable for each element of the composite with matching
   // indexes (i.e. the 0'th element of |inst| is the 0'th entry of
   // |replacements|).
-  void CreateReplacementVariables(Instruction* inst,
+  bool CreateReplacementVariables(Instruction* inst,
                                   std::vector<Instruction*>* replacements);
 
-  // Returns the value of an OpConstant of integer type.
-  //
-  // |constant| must use two or fewer words to generate the value.
-  size_t GetConstantInteger(const Instruction* constant) const;
-
-  // Returns the integer literal for |op|.
-  size_t GetIntegerLiteral(const Operand& op) const;
-
   // Returns the array length for |arrayInst|.
-  size_t GetArrayLength(const Instruction* arrayInst) const;
+  uint64_t GetArrayLength(const Instruction* arrayInst) const;
 
   // Returns the number of elements in |type|.
   //
   // |type| must be a vector or matrix type.
-  size_t GetNumElements(const Instruction* type) const;
+  uint64_t GetNumElements(const Instruction* type) const;
 
   // Returns true if |id| is a specialization constant.
   //
@@ -191,33 +207,47 @@ class ScalarReplacementPass : public Pass {
   // Generates a load for each replacement variable and then creates a new
   // composite by combining all of the loads.
   //
-  // |load| must be a load.
-  void ReplaceWholeLoad(Instruction* load,
+  // |load| must be a load.  Returns true if successful.
+  bool ReplaceWholeLoad(Instruction* load,
                         const std::vector<Instruction*>& replacements);
 
   // Replaces the store to the entire composite.
   //
   // Generates a composite extract and store for each element in the scalarized
-  // variable from the original store data input.
-  void ReplaceWholeStore(Instruction* store,
+  // variable from the original store data input.  Returns true if successful.
+  bool ReplaceWholeStore(Instruction* store,
                          const std::vector<Instruction*>& replacements);
+
+  // Replaces the DebugDeclare to the entire composite.
+  //
+  // Generates a DebugValue with Deref operation for each element in the
+  // scalarized variable from the original DebugDeclare.  Returns true if
+  // successful.
+  bool ReplaceWholeDebugDeclare(Instruction* dbg_decl,
+                                const std::vector<Instruction*>& replacements);
+
+  // Replaces the DebugValue to the entire composite.
+  //
+  // Generates a DebugValue for each element in the scalarized variable from
+  // the original DebugValue.  Returns true if successful.
+  bool ReplaceWholeDebugValue(Instruction* dbg_value,
+                              const std::vector<Instruction*>& replacements);
 
   // Replaces an access chain to the composite variable with either a direct use
   // of the appropriate replacement variable or another access chain with the
-  // replacement variable as the base and one fewer indexes. Returns false if
-  // the chain has an out of bounds access.
+  // replacement variable as the base and one fewer indexes. Returns true if
+  // successful.
   bool ReplaceAccessChain(Instruction* chain,
                           const std::vector<Instruction*>& replacements);
 
   // Returns a set containing the which components of the result of |inst| are
   // potentially used.  If the return value is |nullptr|, then every components
   // is possibly used.
-  std::unique_ptr<std::unordered_set<uint64_t>> GetUsedComponents(
+  std::unique_ptr<std::unordered_set<int64_t>> GetUsedComponents(
       Instruction* inst);
 
-  // Returns an instruction defining a null constant with type |type_id|.  If
-  // one already exists, it is returned.  Otherwise a new one is created.
-  Instruction* CreateNullConstant(uint32_t type_id);
+  // Returns an instruction defining an undefined value type |type_id|.
+  Instruction* GetUndef(uint32_t type_id);
 
   // Maps storage type to a pointer type enclosing that type.
   std::unordered_map<uint32_t, uint32_t> pointee_to_pointer_;
@@ -225,11 +255,37 @@ class ScalarReplacementPass : public Pass {
   // Maps type id to OpConstantNull for that type.
   std::unordered_map<uint32_t, uint32_t> type_to_null_;
 
+  // Returns the number of elements in the variable |var_inst|.
+  uint64_t GetMaxLegalIndex(const Instruction* var_inst) const;
+
+  // Returns true if |length| is larger than limit on the size of the variable
+  // that we will be willing to split.
+  bool IsLargerThanSizeLimit(uint64_t length) const;
+
+  // Copies all relevant decorations from `from` to `to`. This includes
+  // decorations applied to the variable, and to the members of the type.
+  // It is assumed that `to` is a variable that is intended to replace the
+  // `member_index`th member of `from`.
+  void CopyDecorationsToVariable(Instruction* from, Instruction* to,
+                                 uint32_t member_index);
+
+  // Copies pointer related decoration from `from` to `to` if they exist.
+  void CopyPointerDecorationsToVariable(Instruction* from, Instruction* to);
+
+  // Copies decorations that are needed from the `member_index` of `from` to
+  // `to, if there was one.
+  void CopyNecessaryMemberDecorationsToVariable(Instruction* from,
+                                                Instruction* to,
+                                                uint32_t member_index);
+
   // Limit on the number of members in an object that will be replaced.
   // 0 means there is no limit.
   uint32_t max_num_elements_;
-  bool IsLargerThanSizeLimit(size_t length) const;
-  char name_[55];
+
+  // This has to be big enough to fit "scalar-replacement=" followed by a
+  // uint32_t number written in decimal (so 10 digits), and then a
+  // terminating nul.
+  char name_[30];
 };
 
 }  // namespace opt

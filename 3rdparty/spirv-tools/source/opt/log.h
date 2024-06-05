@@ -23,7 +23,7 @@
 #include "spirv-tools/libspirv.hpp"
 
 // Asserts the given condition is true. Otherwise, sends a message to the
-// consumer and exits the problem with failure code. Accepts the following
+// consumer and exits the program with failure code. Accepts the following
 // formats:
 //
 // SPIRV_ASSERT(<message-consumer>, <condition-expression>);
@@ -36,7 +36,9 @@
 #if !defined(NDEBUG)
 #define SPIRV_ASSERT(consumer, ...) SPIRV_ASSERT_IMPL(consumer, __VA_ARGS__)
 #else
-#define SPIRV_ASSERT(consumer, ...)
+// Adding a use to avoid errors in the release build related to unused
+// consumers.
+#define SPIRV_ASSERT(consumer, ...) (void)(consumer)
 #endif
 
 // Logs a debug message to the consumer. Accepts the following formats:
@@ -49,24 +51,10 @@
 #if !defined(NDEBUG) && defined(SPIRV_LOG_DEBUG)
 #define SPIRV_DEBUG(consumer, ...) SPIRV_DEBUG_IMPL(consumer, __VA_ARGS__)
 #else
-#define SPIRV_DEBUG(consumer, ...)
+// Adding a use to avoid errors in the release build related to unused
+// consumers.
+#define SPIRV_DEBUG(consumer, ...) (void)(consumer)
 #endif
-
-// Logs an error message to the consumer saying the given feature is
-// unimplemented.
-#define SPIRV_UNIMPLEMENTED(consumer, feature)                  \
-  do {                                                          \
-    spvtools::Log(consumer, SPV_MSG_INTERNAL_ERROR, __FILE__,   \
-                  {__LINE__, 0, 0}, "unimplemented: " feature); \
-  } while (0)
-
-// Logs an error message to the consumer saying the code location
-// should be unreachable.
-#define SPIRV_UNREACHABLE(consumer)                           \
-  do {                                                        \
-    spvtools::Log(consumer, SPV_MSG_INTERNAL_ERROR, __FILE__, \
-                  {__LINE__, 0, 0}, "unreachable");           \
-  } while (0)
 
 // Helper macros for concatenating arguments.
 #define SPIRV_CONCATENATE(a, b) SPIRV_CONCATENATE_(a, b)
@@ -154,32 +142,34 @@ inline void Errorf(const MessageConsumer& consumer, const char* source,
   PP_EXPAND(SPIRV_CONCATENATE(SPIRV_DEBUG_, PP_NARGS(__VA_ARGS__))( \
       consumer, __VA_ARGS__))
 
-#define SPIRV_ASSERT_1(consumer, condition)                             \
-  do {                                                                  \
-    if (!(condition)) {                                                 \
-      spvtools::Log(consumer, SPV_MSG_INTERNAL_ERROR, __FILE__,         \
-                    {__LINE__, 0, 0}, "assertion failed: " #condition); \
-      std::exit(EXIT_FAILURE);                                          \
-    }                                                                   \
+#define SPIRV_ASSERT_1(consumer, condition)                     \
+  do {                                                          \
+    if (!(condition)) {                                         \
+      spvtools::Log(consumer, SPV_MSG_INTERNAL_ERROR, __FILE__, \
+                    {static_cast<size_t>(__LINE__), 0, 0},      \
+                    "assertion failed: " #condition);           \
+      std::exit(EXIT_FAILURE);                                  \
+    }                                                           \
   } while (0)
 
-#define SPIRV_ASSERT_2(consumer, condition, message)                 \
-  do {                                                               \
-    if (!(condition)) {                                              \
-      spvtools::Log(consumer, SPV_MSG_INTERNAL_ERROR, __FILE__,      \
-                    {__LINE__, 0, 0}, "assertion failed: " message); \
-      std::exit(EXIT_FAILURE);                                       \
-    }                                                                \
+#define SPIRV_ASSERT_2(consumer, condition, message)            \
+  do {                                                          \
+    if (!(condition)) {                                         \
+      spvtools::Log(consumer, SPV_MSG_INTERNAL_ERROR, __FILE__, \
+                    {static_cast<size_t>(__LINE__), 0, 0},      \
+                    "assertion failed: " message);              \
+      std::exit(EXIT_FAILURE);                                  \
+    }                                                           \
   } while (0)
 
-#define SPIRV_ASSERT_more(consumer, condition, format, ...)         \
-  do {                                                              \
-    if (!(condition)) {                                             \
-      spvtools::Logf(consumer, SPV_MSG_INTERNAL_ERROR, __FILE__,    \
-                     {__LINE__, 0, 0}, "assertion failed: " format, \
-                     __VA_ARGS__);                                  \
-      std::exit(EXIT_FAILURE);                                      \
-    }                                                               \
+#define SPIRV_ASSERT_more(consumer, condition, format, ...)      \
+  do {                                                           \
+    if (!(condition)) {                                          \
+      spvtools::Logf(consumer, SPV_MSG_INTERNAL_ERROR, __FILE__, \
+                     {static_cast<size_t>(__LINE__), 0, 0},      \
+                     "assertion failed: " format, __VA_ARGS__);  \
+      std::exit(EXIT_FAILURE);                                   \
+    }                                                            \
   } while (0)
 
 #define SPIRV_ASSERT_3(consumer, condition, format, ...) \
@@ -191,16 +181,17 @@ inline void Errorf(const MessageConsumer& consumer, const char* source,
 #define SPIRV_ASSERT_5(consumer, condition, format, ...) \
   SPIRV_ASSERT_more(consumer, condition, format, __VA_ARGS__)
 
-#define SPIRV_DEBUG_1(consumer, message)                               \
-  do {                                                                 \
-    spvtools::Log(consumer, SPV_MSG_DEBUG, __FILE__, {__LINE__, 0, 0}, \
-                  message);                                            \
+#define SPIRV_DEBUG_1(consumer, message)                           \
+  do {                                                             \
+    spvtools::Log(consumer, SPV_MSG_DEBUG, __FILE__,               \
+                  {static_cast<size_t>(__LINE__), 0, 0}, message); \
   } while (0)
 
-#define SPIRV_DEBUG_more(consumer, format, ...)                         \
-  do {                                                                  \
-    spvtools::Logf(consumer, SPV_MSG_DEBUG, __FILE__, {__LINE__, 0, 0}, \
-                   format, __VA_ARGS__);                                \
+#define SPIRV_DEBUG_more(consumer, format, ...)                   \
+  do {                                                            \
+    spvtools::Logf(consumer, SPV_MSG_DEBUG, __FILE__,             \
+                   {static_cast<size_t>(__LINE__), 0, 0}, format, \
+                   __VA_ARGS__);                                  \
   } while (0)
 
 #define SPIRV_DEBUG_2(consumer, format, ...) \

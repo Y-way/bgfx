@@ -28,7 +28,23 @@ namespace opt {
 
 class InstructionFolder {
  public:
-  explicit InstructionFolder(IRContext* context) : context_(context) {}
+  explicit InstructionFolder(IRContext* context)
+      : context_(context),
+        const_folding_rules_(new ConstantFoldingRules(context)),
+        folding_rules_(new FoldingRules(context)) {
+    folding_rules_->AddFoldingRules();
+    const_folding_rules_->AddFoldingRules();
+  }
+
+  explicit InstructionFolder(
+      IRContext* context, std::unique_ptr<FoldingRules>&& folding_rules,
+      std::unique_ptr<ConstantFoldingRules>&& constant_folding_rules)
+      : context_(context),
+        const_folding_rules_(std::move(constant_folding_rules)),
+        folding_rules_(std::move(folding_rules)) {
+    folding_rules_->AddFoldingRules();
+    const_folding_rules_->AddFoldingRules();
+  }
 
   // Returns the result of folding a scalar instruction with the given |opcode|
   // and |operands|. Each entry in |operands| is a pointer to an
@@ -39,7 +55,7 @@ class InstructionFolder {
   // IsFoldableOpcode test. If any error occurs during folding, the folder will
   // fail with a call to assert.
   uint32_t FoldScalars(
-      SpvOp opcode,
+      spv::Op opcode,
       const std::vector<const analysis::Constant*>& operands) const;
 
   // Returns the result of performing an operation with the given |opcode| over
@@ -56,12 +72,12 @@ class InstructionFolder {
   // IsFoldableOpcode test. If any error occurs during folding, the folder will
   // fail with a call to assert.
   std::vector<uint32_t> FoldVectors(
-      SpvOp opcode, uint32_t num_dims,
+      spv::Op opcode, uint32_t num_dims,
       const std::vector<const analysis::Constant*>& operands) const;
 
   // Returns true if |opcode| represents an operation handled by FoldScalars or
   // FoldVectors.
-  bool IsFoldableOpcode(SpvOp opcode) const;
+  bool IsFoldableOpcode(spv::Op opcode) const;
 
   // Returns true if |cst| is supported by FoldScalars and FoldVectors.
   bool IsFoldableConstant(const analysis::Constant* cst) const;
@@ -69,6 +85,14 @@ class InstructionFolder {
   // Returns true if |FoldInstructionToConstant| could fold an instruction whose
   // result type is |type_inst|.
   bool IsFoldableType(Instruction* type_inst) const;
+
+  // Returns true if |FoldInstructionToConstant| could fold an instruction whose
+  // result type is |type_inst|.
+  bool IsFoldableScalarType(Instruction* type_inst) const;
+
+  // Returns true if |FoldInstructionToConstant| could fold an instruction whose
+  // result type is |type_inst|.
+  bool IsFoldableVectorType(Instruction* type_inst) const;
 
   // Tries to fold |inst| to a single constant, when the input ids to |inst|
   // have been substituted using |id_map|.  Returns a pointer to the OpConstant*
@@ -95,37 +119,37 @@ class InstructionFolder {
   bool FoldInstruction(Instruction* inst) const;
 
   // Return true if this opcode has a const folding rule associtated with it.
-  bool HasConstFoldingRule(SpvOp opcode) const {
-    return GetConstantFoldingRules().HasFoldingRule(opcode);
+  bool HasConstFoldingRule(const Instruction* inst) const {
+    return GetConstantFoldingRules().HasFoldingRule(inst);
   }
 
  private:
   // Returns a reference to the ConstnatFoldingRules instance.
   const ConstantFoldingRules& GetConstantFoldingRules() const {
-    return const_folding_rules;
+    return *const_folding_rules_;
   }
 
   // Returns a reference to the FoldingRules instance.
-  const FoldingRules& GetFoldingRules() const { return folding_rules; }
+  const FoldingRules& GetFoldingRules() const { return *folding_rules_; }
 
   // Returns the single-word result from performing the given unary operation on
   // the operand value which is passed in as a 32-bit word.
-  uint32_t UnaryOperate(SpvOp opcode, uint32_t operand) const;
+  uint32_t UnaryOperate(spv::Op opcode, uint32_t operand) const;
 
   // Returns the single-word result from performing the given binary operation
   // on the operand values which are passed in as two 32-bit word.
-  uint32_t BinaryOperate(SpvOp opcode, uint32_t a, uint32_t b) const;
+  uint32_t BinaryOperate(spv::Op opcode, uint32_t a, uint32_t b) const;
 
   // Returns the single-word result from performing the given ternary operation
   // on the operand values which are passed in as three 32-bit word.
-  uint32_t TernaryOperate(SpvOp opcode, uint32_t a, uint32_t b,
+  uint32_t TernaryOperate(spv::Op opcode, uint32_t a, uint32_t b,
                           uint32_t c) const;
 
   // Returns the single-word result from performing the given operation on the
   // operand words. This only works with 32-bit operations and uses boolean
   // convention that 0u is false, and anything else is boolean true.
   // TODO(qining): Support operands other than 32-bit wide.
-  uint32_t OperateWords(SpvOp opcode,
+  uint32_t OperateWords(spv::Op opcode,
                         const std::vector<uint32_t>& operand_words) const;
 
   bool FoldInstructionInternal(Instruction* inst) const;
@@ -159,10 +183,10 @@ class InstructionFolder {
   IRContext* context_;
 
   // Folding rules used by |FoldInstructionToConstant| and |FoldInstruction|.
-  ConstantFoldingRules const_folding_rules;
+  std::unique_ptr<ConstantFoldingRules> const_folding_rules_;
 
   // Folding rules used by |FoldInstruction|.
-  FoldingRules folding_rules;
+  std::unique_ptr<FoldingRules> folding_rules_;
 };
 
 }  // namespace opt

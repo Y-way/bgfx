@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include <bx/allocator.h>
@@ -81,7 +81,7 @@ namespace bgfx
 			if (i0 > i1) { bx::swap(i0, i1); }
 			if (i1 > i2) { bx::swap(i1, i2); }
 			if (i0 > i1) { bx::swap(i0, i1); }
-			BX_CHECK(i0 < i1 && i1 < i2, "");
+			BX_ASSERT(i0 < i1 && i1 < i2, "");
 
 			dst[1] = i0; dst[0] = i1;
 			dst[3] = i1; dst[2] = i2;
@@ -143,10 +143,10 @@ namespace bgfx
 	template<typename IndexT, typename SortT>
 	static uint32_t topologyConvertTriListToLineList(void* _dst, uint32_t _dstSize, const IndexT* _indices, uint32_t _numIndices, bx::AllocatorI* _allocator)
 	{
-		IndexT* temp     = (IndexT*)BX_ALLOC(_allocator, _numIndices*2*sizeof(IndexT)*2);
+		IndexT* temp     = (IndexT*)bx::alloc(_allocator, _numIndices*2*sizeof(IndexT)*2);
 		SortT*  tempSort = (SortT*)&temp[_numIndices*2];
 		uint32_t num = topologyConvertTriListToLineList(_dst, _dstSize, _indices, _numIndices, temp, tempSort);
-		BX_FREE(_allocator, temp);
+		bx::free(_allocator, temp);
 		return num;
 	}
 
@@ -283,12 +283,12 @@ namespace bgfx
 		return bx::load<bx::Vec3>(&vertices[_index*_stride]);
 	}
 
-	inline float distanceDir(const float* __restrict _dir, const void* __restrict _vertices, uint32_t _stride, uint32_t _index)
+	inline float distanceDir(const float* _dir, const void* _vertices, uint32_t _stride, uint32_t _index)
 	{
 		return bx::dot(vertexPos(_vertices, _stride, _index), bx::load<bx::Vec3>(_dir) );
 	}
 
-	inline float distancePos(const float* __restrict _pos, const void* __restrict _vertices, uint32_t _stride, uint32_t _index)
+	inline float distancePos(const float* _pos, const void* _vertices, uint32_t _stride, uint32_t _index)
 	{
 		const bx::Vec3 tmp = bx::sub(bx::load<bx::Vec3>(_pos), vertexPos(_vertices, _stride, _index) );
 		return bx::sqrt(bx::dot(tmp, tmp) );
@@ -299,10 +299,10 @@ namespace bgfx
 
 	template<typename IndexT, DistanceFn dfn, KeyFn kfn, uint32_t xorBits>
 	inline void calcSortKeys(
-		  uint32_t* __restrict _keys
-		, uint32_t* __restrict _values
+		  uint32_t* _keys
+		, uint32_t* _values
 		, const float _dirOrPos[3]
-		, const void* __restrict _vertices
+		, const void* _vertices
 		, uint32_t _stride
 		, const IndexT* _indices
 		, uint32_t _num
@@ -397,7 +397,7 @@ namespace bgfx
 			: sizeof(uint16_t)
 			;
 		uint32_t  num  = bx::uint32_min(_numIndices*indexSize, _dstSize)/(indexSize*3);
-		uint32_t* temp = (uint32_t*)BX_ALLOC(_allocator, sizeof(uint32_t)*num*4);
+		uint32_t* temp = (uint32_t*)bx::alloc(_allocator, sizeof(uint32_t)*num*4);
 
 		uint32_t* keys       = &temp[num*0];
 		uint32_t* values     = &temp[num*1];
@@ -439,7 +439,7 @@ namespace bgfx
 					);
 		}
 
-		BX_FREE(_allocator, temp);
+		bx::free(_allocator, temp);
 	}
 
 } //namespace bgfx

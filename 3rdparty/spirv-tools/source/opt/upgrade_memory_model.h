@@ -15,10 +15,10 @@
 #ifndef LIBSPIRV_OPT_UPGRADE_MEMORY_MODEL_H_
 #define LIBSPIRV_OPT_UPGRADE_MEMORY_MODEL_H_
 
-#include "pass.h"
-
 #include <functional>
 #include <tuple>
+
+#include "pass.h"
 
 namespace spvtools {
 namespace opt {
@@ -57,14 +57,21 @@ class UpgradeMemoryModel : public Pass {
   // capability and extension.
   void UpgradeMemoryModelInstruction();
 
-  // Upgrades memory, image and barrier instructions.
+  // Upgrades memory, image and atomic instructions.
   // Memory and image instructions convert coherent and volatile decorations
-  // into flags on the instruction. Barriers in tessellation shaders get the
-  // output storage semantic if appropriate.
+  // into flags on the instruction.
+  // Atomic memory semantics convert volatile decoration into flags on the
+  // instruction.
   void UpgradeInstructions();
 
+  // Upgrades memory and image operands for instructions that have them.
+  void UpgradeMemoryAndImages();
+
+  // Adds the volatile memory semantic if necessary.
+  void UpgradeAtomics();
+
   // Returns whether |id| is coherent and/or volatile.
-  std::tuple<bool, bool, SpvScope> GetInstructionAttributes(uint32_t id);
+  std::tuple<bool, bool, spv::Scope> GetInstructionAttributes(uint32_t id);
 
   // Traces |inst| to determine if it is coherent and/or volatile.
   // |indices| tracks the access chain indices seen so far.
@@ -77,7 +84,7 @@ class UpgradeMemoryModel : public Pass {
   // match the index or |value| must be a maximum allowable value. The max
   // value allows any element to match.
   bool HasDecoration(const Instruction* inst, uint32_t value,
-                     SpvDecoration decoration);
+                     spv::Decoration decoration);
 
   // Returns whether |type_id| indexed via |indices| is coherent and/or
   // volatile.
@@ -95,8 +102,13 @@ class UpgradeMemoryModel : public Pass {
                     bool is_volatile, OperationType operation_type,
                     InstructionType inst_type);
 
+  // Modifies the semantics at |in_operand| of |inst| to include the volatile
+  // bit if |is_volatile| is true.
+  void UpgradeSemantics(Instruction* inst, uint32_t in_operand,
+                        bool is_volatile);
+
   // Returns the result id for a constant for |scope|.
-  uint32_t GetScopeConstant(SpvScope scope);
+  uint32_t GetScopeConstant(spv::Scope scope);
 
   // Returns the value of |index_inst|. |index_inst| must be an OpConstant of
   // integer type.g
@@ -115,13 +127,17 @@ class UpgradeMemoryModel : public Pass {
   // scope.
   void UpgradeMemoryScope();
 
-  // Returns true if |scope_id| is SpvScopeDevice.
+  // Returns true if |scope_id| is spv::Scope::Device.
   bool IsDeviceScope(uint32_t scope_id);
 
   // Upgrades GLSL.std.450 modf and frexp. Both instructions are replaced with
   // their struct versions. New extracts and a store are added in order to
   // facilitate adding memory model flags.
   void UpgradeExtInst(Instruction* modf);
+
+  // Returns the number of words taken up by a memory access argument and its
+  // implied operands.
+  uint32_t MemoryAccessNumWords(uint32_t mask);
 
   // Caches the result of TraceInstruction. For a given result id and set of
   // indices, stores whether that combination is coherent and/or volatile.

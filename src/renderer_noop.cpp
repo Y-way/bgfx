@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include "bgfx_p.h"
@@ -53,7 +53,8 @@ namespace bgfx { namespace noop
 					| BGFX_CAPS_FORMAT_TEXTURE_CUBE_SRGB
 					| BGFX_CAPS_FORMAT_TEXTURE_CUBE_EMULATED
 					| BGFX_CAPS_FORMAT_TEXTURE_VERTEX
-					| BGFX_CAPS_FORMAT_TEXTURE_IMAGE
+					| BGFX_CAPS_FORMAT_TEXTURE_IMAGE_READ
+					| BGFX_CAPS_FORMAT_TEXTURE_IMAGE_WRITE
 					| BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER
 					| BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA
 					| BGFX_CAPS_FORMAT_TEXTURE_MSAA
@@ -100,15 +101,15 @@ namespace bgfx { namespace noop
 		{
 		}
 
-		void createVertexDecl(VertexDeclHandle /*_handle*/, const VertexDecl& /*_decl*/) override
+		void createVertexLayout(VertexLayoutHandle /*_handle*/, const VertexLayout& /*_layout*/) override
 		{
 		}
 
-		void destroyVertexDecl(VertexDeclHandle /*_handle*/) override
+		void destroyVertexLayout(VertexLayoutHandle /*_handle*/) override
 		{
 		}
 
-		void createVertexBuffer(VertexBufferHandle /*_handle*/, const Memory* /*_mem*/, VertexDeclHandle /*_declHandle*/, uint16_t /*_flags*/) override
+		void createVertexBuffer(VertexBufferHandle /*_handle*/, const Memory* /*_mem*/, VertexLayoutHandle /*_layoutHandle*/, uint16_t /*_flags*/) override
 		{
 		}
 
@@ -251,6 +252,7 @@ namespace bgfx { namespace noop
 			perfStats.gpuTimeBegin  = 0;
 			perfStats.gpuTimeEnd    = 0;
 			perfStats.gpuTimerFreq  = 1000000000;
+			perfStats.gpuFrameNum   = 0;
 
 			bx::memSet(perfStats.numPrims, 0, sizeof(perfStats.numPrims) );
 
@@ -278,7 +280,7 @@ namespace bgfx { namespace noop
 
 	void rendererDestroy()
 	{
-		BX_DELETE(g_allocator, s_renderNOOP);
+		bx::deleteObject(g_allocator, s_renderNOOP);
 		s_renderNOOP = NULL;
 	}
 } /* namespace noop */ } // namespace bgfx

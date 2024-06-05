@@ -1,6 +1,6 @@
 /*
- * Copyright 2018 Aleš Mlakar. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2018 Ales Mlakar. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
  /*
@@ -17,7 +17,6 @@
 #include "bgfx_utils.h"
 #include "imgui/imgui.h"
 #include "camera.h"
-#include "bounds.h"
 #include "vt.h"
 
 namespace
@@ -33,17 +32,17 @@ struct PosTexcoordVertex
 
 	static void init()
 	{
-		ms_decl
+		ms_layout
 			.begin()
 			.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
 			.end();
 	};
 
-	static bgfx::VertexDecl ms_decl;
+	static bgfx::VertexLayout ms_layout;
 };
 
-bgfx::VertexDecl PosTexcoordVertex::ms_decl;
+bgfx::VertexLayout PosTexcoordVertex::ms_layout;
 
 static const float s_planeScale = 50.0f;
 
@@ -64,8 +63,8 @@ static const uint16_t s_planeIndices[] =
 class ExampleSVT : public entry::AppI
 {
 public:
-	ExampleSVT(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExampleSVT(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -79,12 +78,14 @@ public:
 		m_reset = BGFX_RESET_VSYNC;
 
 		bgfx::Init init;
-
-		init.type = args.m_type;
+		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
-		init.resolution.width = m_width;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
+		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
-		init.resolution.reset = m_reset;
+		init.resolution.reset  = m_reset;
 		bgfx::init(init);
 
 		// Enable m_debug text.
@@ -107,7 +108,7 @@ public:
 		// Create static vertex buffer.
 		m_vbh = bgfx::createVertexBuffer(
 			  bgfx::makeRef(s_vplaneVertices, sizeof(s_vplaneVertices))
-			, PosTexcoordVertex::ms_decl
+			, PosTexcoordVertex::ms_layout
 		);
 
 		m_ibh = bgfx::createIndexBuffer(
@@ -211,7 +212,7 @@ public:
 
 			if ((BGFX_CAPS_TEXTURE_BLIT | BGFX_CAPS_TEXTURE_READ_BACK) != (bgfx::getCaps()->supported & (BGFX_CAPS_TEXTURE_BLIT | BGFX_CAPS_TEXTURE_READ_BACK)))
 			{
-				// When texture read-back or blit is not supported by GPU blink!				
+				// When texture read-back or blit is not supported by GPU blink!
 				bool blink = uint32_t(time*3.0f) & 1;
 				bgfx::dbgTextPrintf(0, 0, blink ? 0x4f : 0x04, " Texture read-back and/or blit not supported by GPU. ");
 
@@ -261,7 +262,7 @@ public:
 				ImGui::End();
 
 				// Update camera.
-				cameraUpdate(deltaTime, m_mouseState);
+				cameraUpdate(deltaTime, m_mouseState, ImGui::MouseOverArea() );
 
 				float view[16];
 				cameraGetViewMtx(view);
@@ -372,4 +373,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExampleSVT, "40-svt", "Sparse Virtual Textures.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExampleSVT
+	, "40-svt"
+	, "Sparse Virtual Textures."
+	, "https://bkaradzic.github.io/bgfx/examples.html#svt"
+	);

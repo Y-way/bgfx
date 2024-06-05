@@ -31,10 +31,18 @@ using MessageConsumer = std::function<void(
     const spv_position_t& /* position */, const char* /* message */
     )>;
 
+using HeaderParser = std::function<spv_result_t(
+    const spv_endianness_t endianess, const spv_parsed_header_t& instruction)>;
+using InstructionParser =
+    std::function<spv_result_t(const spv_parsed_instruction_t& instruction)>;
+
 // C++ RAII wrapper around the C context object spv_context.
-class Context {
+class SPIRV_TOOLS_EXPORT Context {
  public:
   // Constructs a context targeting the given environment |env|.
+  //
+  // See specific API calls for how the target environment is interpreted
+  // (particularly assembly and validation).
   //
   // The constructed instance will have an empty message consumer, which just
   // ignores all messages from the library. Use SetMessageConsumer() to supply
@@ -65,7 +73,7 @@ class Context {
 };
 
 // A RAII wrapper around a validator options object.
-class ValidatorOptions {
+class SPIRV_TOOLS_EXPORT ValidatorOptions {
  public:
   ValidatorOptions() : options_(spvValidatorOptionsCreate()) {}
   ~ValidatorOptions() { spvValidatorOptionsDestroy(options_); }
@@ -88,6 +96,12 @@ class ValidatorOptions {
     spvValidatorOptionsSetRelaxBlockLayout(options_, val);
   }
 
+  // Enables VK_KHR_uniform_buffer_standard_layout when validating standard
+  // uniform layout.  If true, disables scalar block layout rules.
+  void SetUniformBufferStandardLayout(bool val) {
+    spvValidatorOptionsSetUniformBufferStandardLayout(options_, val);
+  }
+
   // Enables VK_EXT_scalar_block_layout when validating standard
   // uniform/storage buffer/push-constant layout.  If true, disables
   // relaxed block layout rules.
@@ -95,9 +109,21 @@ class ValidatorOptions {
     spvValidatorOptionsSetScalarBlockLayout(options_, val);
   }
 
+  // Enables scalar layout when validating Workgroup blocks.  See
+  // VK_KHR_workgroup_memory_explicit_layout.
+  void SetWorkgroupScalarBlockLayout(bool val) {
+    spvValidatorOptionsSetWorkgroupScalarBlockLayout(options_, val);
+  }
+
   // Skips validating standard uniform/storage buffer/push-constant layout.
   void SetSkipBlockLayout(bool val) {
     spvValidatorOptionsSetSkipBlockLayout(options_, val);
+  }
+
+  // Enables LocalSizeId decorations where the environment would not otherwise
+  // allow them.
+  void SetAllowLocalSizeId(bool val) {
+    spvValidatorOptionsSetAllowLocalSizeId(options_, val);
   }
 
   // Records whether or not the validator should relax the rules on pointer
@@ -110,12 +136,34 @@ class ValidatorOptions {
     spvValidatorOptionsSetRelaxLogicalPointer(options_, val);
   }
 
+  // Records whether or not the validator should relax the rules because it is
+  // expected that the optimizations will make the code legal.
+  //
+  // When relaxed, it will allow the following:
+  // 1) It will allow relaxed logical pointers.  Setting this option will also
+  //    set that option.
+  // 2) Pointers that are pass as parameters to function calls do not have to
+  //    match the storage class of the formal parameter.
+  // 3) Pointers that are actual parameters on function calls do not have to
+  //    point to the same type pointed as the formal parameter.  The types just
+  //    need to logically match.
+  // 4) GLSLstd450 Interpolate* instructions can have a load of an interpolant
+  //    for a first argument.
+  void SetBeforeHlslLegalization(bool val) {
+    spvValidatorOptionsSetBeforeHlslLegalization(options_, val);
+  }
+
+  // Whether friendly names should be used in validation error messages.
+  void SetFriendlyNames(bool val) {
+    spvValidatorOptionsSetFriendlyNames(options_, val);
+  }
+
  private:
   spv_validator_options options_;
 };
 
 // A C++ wrapper around an optimization options object.
-class OptimizerOptions {
+class SPIRV_TOOLS_EXPORT OptimizerOptions {
  public:
   OptimizerOptions() : options_(spvOptimizerOptionsCreate()) {}
   ~OptimizerOptions() { spvOptimizerOptionsDestroy(options_); }
@@ -140,30 +188,94 @@ class OptimizerOptions {
     spvOptimizerOptionsSetMaxIdBound(options_, new_bound);
   }
 
+  // Records whether all bindings within the module should be preserved.
+  void set_preserve_bindings(bool preserve_bindings) {
+    spvOptimizerOptionsSetPreserveBindings(options_, preserve_bindings);
+  }
+
+  // Records whether all specialization constants within the module
+  // should be preserved.
+  void set_preserve_spec_constants(bool preserve_spec_constants) {
+    spvOptimizerOptionsSetPreserveSpecConstants(options_,
+                                                preserve_spec_constants);
+  }
+
  private:
   spv_optimizer_options options_;
 };
 
 // A C++ wrapper around a reducer options object.
-class ReducerOptions {
+class SPIRV_TOOLS_EXPORT ReducerOptions {
  public:
   ReducerOptions() : options_(spvReducerOptionsCreate()) {}
   ~ReducerOptions() { spvReducerOptionsDestroy(options_); }
 
   // Allow implicit conversion to the underlying object.
-  operator spv_reducer_options() const { return options_; }
+  operator spv_reducer_options() const {  // NOLINT(google-explicit-constructor)
+    return options_;
+  }
 
-  // Records the maximum number of reduction steps that should
-  // run before the reducer gives up.
+  // See spvReducerOptionsSetStepLimit.
   void set_step_limit(uint32_t step_limit) {
     spvReducerOptionsSetStepLimit(options_, step_limit);
   }
 
-  // Sets a seed to be used for random number generation.
-  void set_seed(uint32_t seed) { spvReducerOptionsSetSeed(options_, seed); }
+  // See spvReducerOptionsSetFailOnValidationError.
+  void set_fail_on_validation_error(bool fail_on_validation_error) {
+    spvReducerOptionsSetFailOnValidationError(options_,
+                                              fail_on_validation_error);
+  }
+
+  // See spvReducerOptionsSetTargetFunction.
+  void set_target_function(uint32_t target_function) {
+    spvReducerOptionsSetTargetFunction(options_, target_function);
+  }
 
  private:
   spv_reducer_options options_;
+};
+
+// A C++ wrapper around a fuzzer options object.
+class SPIRV_TOOLS_EXPORT FuzzerOptions {
+ public:
+  FuzzerOptions() : options_(spvFuzzerOptionsCreate()) {}
+  ~FuzzerOptions() { spvFuzzerOptionsDestroy(options_); }
+
+  // Allow implicit conversion to the underlying object.
+  operator spv_fuzzer_options() const {  // NOLINT(google-explicit-constructor)
+    return options_;
+  }
+
+  // See spvFuzzerOptionsEnableReplayValidation.
+  void enable_replay_validation() {
+    spvFuzzerOptionsEnableReplayValidation(options_);
+  }
+
+  // See spvFuzzerOptionsSetRandomSeed.
+  void set_random_seed(uint32_t seed) {
+    spvFuzzerOptionsSetRandomSeed(options_, seed);
+  }
+
+  // See spvFuzzerOptionsSetReplayRange.
+  void set_replay_range(int32_t replay_range) {
+    spvFuzzerOptionsSetReplayRange(options_, replay_range);
+  }
+
+  // See spvFuzzerOptionsSetShrinkerStepLimit.
+  void set_shrinker_step_limit(uint32_t shrinker_step_limit) {
+    spvFuzzerOptionsSetShrinkerStepLimit(options_, shrinker_step_limit);
+  }
+
+  // See spvFuzzerOptionsEnableFuzzerPassValidation.
+  void enable_fuzzer_pass_validation() {
+    spvFuzzerOptionsEnableFuzzerPassValidation(options_);
+  }
+
+  // See spvFuzzerOptionsEnableAllPasses.
+  void enable_all_passes() { spvFuzzerOptionsEnableAllPasses(options_); }
+
+ private:
+  spv_fuzzer_options options_;
 };
 
 // C++ interface for SPIRV-Tools functionalities. It wraps the context
@@ -171,7 +283,7 @@ class ReducerOptions {
 // provides methods for assembling, disassembling, and validating.
 //
 // Instances of this class provide basic thread-safety guarantee.
-class SpirvTools {
+class SPIRV_TOOLS_EXPORT SpirvTools {
  public:
   enum {
     // Default assembling option used by assemble():
@@ -207,16 +319,20 @@ class SpirvTools {
   // Assembles the given assembly |text| and writes the result to |binary|.
   // Returns true on successful assembling. |binary| will be kept untouched if
   // assembling is unsuccessful.
+  // The SPIR-V binary version is set to the highest version of SPIR-V supported
+  // by the target environment with which this SpirvTools object was created.
   bool Assemble(const std::string& text, std::vector<uint32_t>* binary,
                 uint32_t options = kDefaultAssembleOption) const;
   // |text_size| specifies the number of bytes in |text|. A terminating null
   // character is not required to present in |text| as long as |text| is valid.
+  // The SPIR-V binary version is set to the highest version of SPIR-V supported
+  // by the target environment with which this SpirvTools object was created.
   bool Assemble(const char* text, size_t text_size,
                 std::vector<uint32_t>* binary,
                 uint32_t options = kDefaultAssembleOption) const;
 
   // Disassembles the given SPIR-V |binary| with the given |options| and writes
-  // the assembly to |text|. Returns ture on successful disassembling. |text|
+  // the assembly to |text|. Returns true on successful disassembling. |text|
   // will be kept untouched if diassembling is unsuccessful.
   bool Disassemble(const std::vector<uint32_t>& binary, std::string* text,
                    uint32_t options = kDefaultDisassembleOption) const;
@@ -225,13 +341,46 @@ class SpirvTools {
                    std::string* text,
                    uint32_t options = kDefaultDisassembleOption) const;
 
+  // Parses a SPIR-V binary, specified as counted sequence of 32-bit words.
+  // Parsing feedback is provided via two callbacks provided as std::function.
+  // In a valid parse the parsed-header callback is called once, and
+  // then the parsed-instruction callback is called once for each instruction
+  // in the stream.
+  // Returns true on successful parsing.
+  // If diagnostic is non-null, a diagnostic is emitted on failed parsing.
+  // If diagnostic is null the context's message consumer
+  // will be used to emit any errors. If a callback returns anything other than
+  // SPV_SUCCESS, then that status code is returned, no further callbacks are
+  // issued, and no additional diagnostics are emitted.
+  // This is a wrapper around the C API spvBinaryParse.
+  bool Parse(const std::vector<uint32_t>& binary,
+             const HeaderParser& header_parser,
+             const InstructionParser& instruction_parser,
+             spv_diagnostic* diagnostic = nullptr);
+
   // Validates the given SPIR-V |binary|. Returns true if no issues are found.
   // Otherwise, returns false and communicates issues via the message consumer
   // registered.
+  // Validates for SPIR-V spec rules for the SPIR-V version named in the
+  // binary's header (at word offset 1).  Additionally, if the target
+  // environment is a client API (such as Vulkan 1.1), then validate for that
+  // client API version, to the extent that it is verifiable from data in the
+  // binary itself.
   bool Validate(const std::vector<uint32_t>& binary) const;
+  // Like the previous overload, but provides the binary as a pointer and size:
   // |binary_size| specifies the number of words in |binary|.
+  // Validates for SPIR-V spec rules for the SPIR-V version named in the
+  // binary's header (at word offset 1).  Additionally, if the target
+  // environment is a client API (such as Vulkan 1.1), then validate for that
+  // client API version, to the extent that it is verifiable from data in the
+  // binary itself.
   bool Validate(const uint32_t* binary, size_t binary_size) const;
   // Like the previous overload, but takes an options object.
+  // Validates for SPIR-V spec rules for the SPIR-V version named in the
+  // binary's header (at word offset 1).  Additionally, if the target
+  // environment is a client API (such as Vulkan 1.1), then validate for that
+  // client API version, to the extent that it is verifiable from data in the
+  // binary itself, or in the validator options.
   bool Validate(const uint32_t* binary, size_t binary_size,
                 spv_validator_options options) const;
 
@@ -239,7 +388,8 @@ class SpirvTools {
   bool IsValid() const;
 
  private:
-  struct Impl;  // Opaque struct for holding the data fields used by this class.
+  struct SPIRV_TOOLS_LOCAL
+      Impl;  // Opaque struct for holding the data fields used by this class.
   std::unique_ptr<Impl> impl_;  // Unique pointer to implementation data.
 };
 

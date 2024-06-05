@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include "entry_p.h"
@@ -18,10 +18,12 @@
 
 #include <tinystl/allocator.h>
 #include <tinystl/string.h>
+#include <tinystl/vector.h>
 
 #include <windows.h>
 #include <windowsx.h>
 #include <xinput.h>
+#include <shellapi.h>
 
 #ifndef XINPUT_GAMEPAD_GUIDE
 #	define XINPUT_GAMEPAD_GUIDE 0x400
@@ -33,13 +35,14 @@
 
 namespace entry
 {
-	///
-	inline void winSetHwnd(::HWND _window)
+	typedef tinystl::vector<WCHAR> WSTRING;
+
+	inline WSTRING UTF8ToUTF16(const char *utf8_str)
 	{
-		bgfx::PlatformData pd;
-		bx::memSet(&pd, 0, sizeof(pd) );
-		pd.nwh = _window;
-		bgfx::setPlatformData(pd);
+		int len = MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, NULL, 0);
+		WSTRING utf16(len);
+		MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, utf16.data(), len);
+		return utf16;
 	}
 
 	typedef DWORD (WINAPI* PFN_XINPUT_GET_STATE)(DWORD dwUserIndex, XINPUT_STATE* pState);
@@ -359,6 +362,7 @@ namespace entry
 			, m_init(false)
 			, m_exit(false)
 		{
+			m_surrogate = 0;
 			bx::memSet(s_translateKey, 0, sizeof(s_translateKey) );
 			s_translateKey[VK_ESCAPE]     = Key::Esc;
 			s_translateKey[VK_RETURN]     = Key::Return;
@@ -456,7 +460,7 @@ namespace entry
 
 			HINSTANCE instance = (HINSTANCE)GetModuleHandle(NULL);
 
-			WNDCLASSEXA wnd;
+			WNDCLASSEXW wnd;
 			bx::memSet(&wnd, 0, sizeof(wnd) );
 			wnd.cbSize = sizeof(wnd);
 			wnd.style = CS_HREDRAW | CS_VREDRAW;
@@ -464,9 +468,9 @@ namespace entry
 			wnd.hInstance = instance;
 			wnd.hIcon = LoadIcon(NULL, IDI_APPLICATION);
 			wnd.hCursor = LoadCursor(NULL, IDC_ARROW);
-			wnd.lpszClassName = "bgfx";
+			wnd.lpszClassName = L"bgfx";
 			wnd.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
-			RegisterClassExA(&wnd);
+			RegisterClassExW(&wnd);
 
 			m_windowAlloc.alloc();
 			m_hwnd[0] = CreateWindowExA(
@@ -488,8 +492,6 @@ namespace entry
 				| ENTRY_WINDOW_FLAG_ASPECT_RATIO
 				| ENTRY_WINDOW_FLAG_FRAME
 				;
-
-			winSetHwnd(m_hwnd[0]);
 
 			adjust(m_hwnd[0], ENTRY_DEFAULT_WIDTH, ENTRY_DEFAULT_HEIGHT, true);
 			clear(m_hwnd[0]);
@@ -521,10 +523,10 @@ namespace entry
 				s_xinput.update(m_eventQueue);
 				WaitForInputIdle(GetCurrentProcess(), 16);
 
-				while (0 != PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE) )
+				while (0 != PeekMessageW(&msg, NULL, 0U, 0U, PM_REMOVE) )
 				{
 					TranslateMessage(&msg);
-					DispatchMessage(&msg);
+					DispatchMessageW(&msg);
 				}
 			}
 
@@ -548,8 +550,8 @@ namespace entry
 				case WM_USER_WINDOW_CREATE:
 					{
 						Msg* msg = (Msg*)_lparam;
-						HWND hwnd = CreateWindowA("bgfx"
-							, msg->m_title.c_str()
+						HWND hwnd = CreateWindowW(L"bgfx"
+							, UTF8ToUTF16(msg->m_title.c_str()).data()
 							, WS_OVERLAPPEDWINDOW|WS_VISIBLE
 							, msg->m_x
 							, msg->m_y
@@ -560,6 +562,8 @@ namespace entry
 							, (HINSTANCE)GetModuleHandle(NULL)
 							, 0
 							);
+
+						adjust(hwnd, msg->m_width, msg->m_height, true);
 						clear(hwnd);
 
 						m_hwnd[_wparam]  = hwnd;
@@ -590,7 +594,7 @@ namespace entry
 				case WM_USER_WINDOW_SET_TITLE:
 					{
 						Msg* msg = (Msg*)_lparam;
-						SetWindowTextA(m_hwnd[_wparam], msg->m_title.c_str() );
+						SetWindowTextW(m_hwnd[_wparam], UTF8ToUTF16(msg->m_title.c_str()).data() );
 						delete msg;
 					}
 					break;
@@ -842,20 +846,36 @@ namespace entry
 
 				case WM_CHAR:
 					{
+						WCHAR utf16[2] = { (WCHAR)_wparam };
 						uint8_t utf8[4] = {};
-						uint8_t len = (uint8_t)WideCharToMultiByte(CP_UTF8
-											, 0
-											, (LPCWSTR)&_wparam
-											, 1
-											, (LPSTR)utf8
-											, BX_COUNTOF(utf8)
-											, NULL
-											, NULL
-											);
-						if (0 != len)
-						{
-							WindowHandle handle = findHandle(_hwnd);
-							m_eventQueue.postCharEvent(handle, len, utf8);
+
+						if (utf16[0] >= 0xD800 && utf16[0] <= 0xDBFF) {
+							m_surrogate = utf16[0];
+						} else {
+							int utf16_len;
+							if (utf16[0] >= 0xDC00 && utf16[0] <= 0xDFFF) {
+								utf16[1] = utf16[0];
+								utf16[0] = m_surrogate;
+								m_surrogate = 0;
+								utf16_len = 2;
+							} else {
+								utf16_len = 1;
+							}
+
+							uint8_t len = (uint8_t)WideCharToMultiByte(CP_UTF8
+												, 0
+												, utf16
+												, utf16_len
+												, (LPSTR)utf8
+												, BX_COUNTOF(utf8)
+												, NULL
+												, NULL
+												);
+							if (0 != len)
+							{
+								WindowHandle handle = findHandle(_hwnd);
+								m_eventQueue.postCharEvent(handle, len, utf8);
+							}
 						}
 					}
 					break;
@@ -864,8 +884,10 @@ namespace entry
 					{
 						HDROP drop = (HDROP)_wparam;
 						char tmp[bx::kMaxFilePath];
-						uint32_t result = DragQueryFileA(drop, 0, tmp, sizeof(tmp) );
+						WCHAR utf16[bx::kMaxFilePath];
+						uint32_t result = DragQueryFileW(drop, 0, utf16, bx::kMaxFilePath);
 						BX_UNUSED(result);
+						WideCharToMultiByte(CP_UTF8, 0, utf16, -1, tmp, bx::kMaxFilePath, NULL, NULL);
 						WindowHandle handle = findHandle(_hwnd);
 						m_eventQueue.postDropFileEvent(handle, tmp);
 					}
@@ -876,7 +898,7 @@ namespace entry
 				}
 			}
 
-			return DefWindowProc(_hwnd, _id, _wparam, _lparam);
+			return DefWindowProcW(_hwnd, _id, _wparam, _lparam);
 		}
 
 		WindowHandle findHandle(HWND _hwnd)
@@ -905,6 +927,7 @@ namespace entry
 			SelectObject(hdc, brush);
 			FillRect(hdc, &rect, brush);
 			ReleaseDC(_hwnd, hdc);
+			DeleteObject(brush);
 		}
 
 		void adjust(HWND _hwnd, uint32_t _width, uint32_t _height, bool _windowFrame)
@@ -993,7 +1016,9 @@ namespace entry
 
 		void setMouseLock(HWND _hwnd, bool _lock)
 		{
-			if (_hwnd != m_mouseLock)
+			HWND newMouseLock = _lock ? _hwnd : 0;
+
+			if (newMouseLock != m_mouseLock)
 			{
 				if (_lock)
 				{
@@ -1008,13 +1033,14 @@ namespace entry
 					ShowCursor(true);
 				}
 
-				m_mouseLock = _hwnd;
+				m_mouseLock = newMouseLock;
 			}
 		}
 
 		static LRESULT CALLBACK wndProc(HWND _hwnd, UINT _id, WPARAM _wparam, LPARAM _lparam);
 
 		EventQueue m_eventQueue;
+		WCHAR m_surrogate;
 		bx::Mutex m_lock;
 
 		bx::HandleAllocT<ENTRY_CONFIG_MAX_WINDOWS> m_windowAlloc;
@@ -1131,6 +1157,21 @@ namespace entry
 	void setMouseLock(WindowHandle _handle, bool _lock)
 	{
 		PostMessage(s_ctx.m_hwnd[0], WM_USER_WINDOW_MOUSE_LOCK, _handle.idx, _lock);
+	}
+
+	void* getNativeWindowHandle(WindowHandle _handle)
+	{
+		return s_ctx.m_hwnd[_handle.idx];
+	}
+
+	void* getNativeDisplayHandle()
+	{
+		return NULL;
+	}
+
+	bgfx::NativeWindowHandleType::Enum getNativeWindowHandleType()
+	{
+		return bgfx::NativeWindowHandleType::Default;
 	}
 
 	int32_t MainThreadEntry::threadFunc(bx::Thread* /*_thread*/, void* _userData)

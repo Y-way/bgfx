@@ -1,6 +1,6 @@
 /*
  * Copyright 2013-2014 Dario Manesku. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include <string>
@@ -15,7 +15,7 @@
 
 namespace bgfx
 {
-	int32_t read(bx::ReaderI* _reader, bgfx::VertexDecl& _decl, bx::Error* _err = NULL);
+	int32_t read(bx::ReaderI* _reader, bgfx::VertexLayout& _layout, bx::Error* _err);
 }
 
 namespace
@@ -43,7 +43,7 @@ struct PosNormalTexcoordVertex
 
 	static void init()
 	{
-		ms_decl
+		ms_layout
 			.begin()
 			.add(bgfx::Attrib::Position,  3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::Normal,    4, bgfx::AttribType::Uint8, true, true)
@@ -51,10 +51,10 @@ struct PosNormalTexcoordVertex
 			.end();
 	}
 
-	static bgfx::VertexDecl ms_decl;
+	static bgfx::VertexLayout ms_layout;
 };
 
-bgfx::VertexDecl PosNormalTexcoordVertex::ms_decl;
+bgfx::VertexLayout PosNormalTexcoordVertex::ms_layout;
 
 static const float s_texcoord = 5.0f;
 static PosNormalTexcoordVertex s_hplaneVertices[] =
@@ -131,8 +131,9 @@ static bgfx::UniformHandle s_texColor;
 
 void setViewClearMask(uint32_t _viewMask, uint8_t _flags, uint32_t _rgba, float _depth, uint8_t _stencil)
 {
-	for (uint32_t view = 0, viewMask = _viewMask, ntz = bx::uint32_cnttz(_viewMask); 0 != viewMask; viewMask >>= 1, view += 1, ntz = bx::uint32_cnttz(viewMask) )
+	for (uint32_t view = 0, viewMask = _viewMask; 0 != viewMask; viewMask >>= 1, view += 1 )
 	{
+		const uint32_t ntz = bx::uint32_cnttz(viewMask);
 		viewMask >>= ntz;
 		view += ntz;
 
@@ -142,8 +143,9 @@ void setViewClearMask(uint32_t _viewMask, uint8_t _flags, uint32_t _rgba, float 
 
 void setViewTransformMask(uint32_t _viewMask, const void* _view, const void* _proj)
 {
-	for (uint32_t view = 0, viewMask = _viewMask, ntz = bx::uint32_cnttz(_viewMask); 0 != viewMask; viewMask >>= 1, view += 1, ntz = bx::uint32_cnttz(viewMask) )
+	for (uint32_t view = 0, viewMask = _viewMask; 0 != viewMask; viewMask >>= 1, view += 1 )
 	{
+        const uint32_t ntz = bx::uint32_cnttz(viewMask);
 		viewMask >>= ntz;
 		view += ntz;
 
@@ -153,8 +155,9 @@ void setViewTransformMask(uint32_t _viewMask, const void* _view, const void* _pr
 
 void setViewRectMask(uint32_t _viewMask, uint16_t _x, uint16_t _y, uint16_t _width, uint16_t _height)
 {
-	for (uint32_t view = 0, viewMask = _viewMask, ntz = bx::uint32_cnttz(_viewMask); 0 != viewMask; viewMask >>= 1, view += 1, ntz = bx::uint32_cnttz(viewMask) )
+	for (uint32_t view = 0, viewMask = _viewMask; 0 != viewMask; viewMask >>= 1, view += 1 )
 	{
+        const uint32_t ntz = bx::uint32_cnttz(viewMask);
 		viewMask >>= ntz;
 		view += ntz;
 
@@ -606,6 +609,9 @@ struct Group
 	{
 		m_vbh.idx = bgfx::kInvalidHandle;
 		m_ibh.idx = bgfx::kInvalidHandle;
+		m_sphere={};
+		m_aabb={};
+		m_obb={};
 		m_prims.clear();
 	}
 
@@ -619,15 +625,15 @@ struct Group
 
 struct Mesh
 {
-	void load(const void* _vertices, uint32_t _numVertices, const bgfx::VertexDecl _decl, const uint16_t* _indices, uint32_t _numIndices)
+	void load(const void* _vertices, uint32_t _numVertices, const bgfx::VertexLayout _layout, const uint16_t* _indices, uint32_t _numIndices)
 	{
 		Group group;
 		const bgfx::Memory* mem;
 		uint32_t size;
 
-		size = _numVertices*_decl.getStride();
+		size = _numVertices*_layout.getStride();
 		mem = bgfx::makeRef(_vertices, size);
-		group.m_vbh = bgfx::createVertexBuffer(mem, _decl);
+		group.m_vbh = bgfx::createVertexBuffer(mem, _layout);
 
 		size = _numIndices*2;
 		mem = bgfx::makeRef(_indices, size);
@@ -647,35 +653,37 @@ struct Mesh
 
 		Group group;
 
+		bx::Error err;
+
 		uint32_t chunk;
-		while (4 == bx::read(reader, chunk) )
+		while (4 == bx::read(reader, chunk, &err) )
 		{
 			switch (chunk)
 			{
 			case BGFX_CHUNK_MAGIC_VB:
 				{
-					bx::read(reader, group.m_sphere);
-					bx::read(reader, group.m_aabb);
-					bx::read(reader, group.m_obb);
+					bx::read(reader, group.m_sphere, &err);
+					bx::read(reader, group.m_aabb, &err);
+					bx::read(reader, group.m_obb, &err);
 
-					bgfx::read(reader, m_decl);
-					uint16_t stride = m_decl.getStride();
+					bgfx::read(reader, m_layout, &err);
+					uint16_t stride = m_layout.getStride();
 
 					uint16_t numVertices;
-					bx::read(reader, numVertices);
+					bx::read(reader, numVertices, &err);
 					const bgfx::Memory* mem = bgfx::alloc(numVertices*stride);
-					bx::read(reader, mem->data, mem->size);
+					bx::read(reader, mem->data, mem->size, &err);
 
-					group.m_vbh = bgfx::createVertexBuffer(mem, m_decl);
+					group.m_vbh = bgfx::createVertexBuffer(mem, m_layout);
 				}
 				break;
 
 			case BGFX_CHUNK_MAGIC_IB:
 				{
 					uint32_t numIndices;
-					bx::read(reader, numIndices);
+					bx::read(reader, numIndices, &err);
 					const bgfx::Memory* mem = bgfx::alloc(numIndices*2);
-					bx::read(reader, mem->data, mem->size);
+					bx::read(reader, mem->data, mem->size, &err);
 					group.m_ibh = bgfx::createIndexBuffer(mem);
 				}
 				break;
@@ -683,31 +691,31 @@ struct Mesh
 			case BGFX_CHUNK_MAGIC_PRI:
 				{
 					uint16_t len;
-					bx::read(reader, len);
+					bx::read(reader, len, &err);
 
 					std::string material;
 					material.resize(len);
-					bx::read(reader, const_cast<char*>(material.c_str() ), len);
+					bx::read(reader, const_cast<char*>(material.c_str() ), len, &err);
 
 					uint16_t num;
-					bx::read(reader, num);
+					bx::read(reader, num, &err);
 
 					for (uint32_t ii = 0; ii < num; ++ii)
 					{
-						bx::read(reader, len);
+						bx::read(reader, len, &err);
 
 						std::string name;
 						name.resize(len);
-						bx::read(reader, const_cast<char*>(name.c_str() ), len);
+						bx::read(reader, const_cast<char*>(name.c_str() ), len, &err);
 
 						Primitive prim;
-						bx::read(reader, prim.m_startIndex);
-						bx::read(reader, prim.m_numIndices);
-						bx::read(reader, prim.m_startVertex);
-						bx::read(reader, prim.m_numVertices);
-						bx::read(reader, prim.m_sphere);
-						bx::read(reader, prim.m_aabb);
-						bx::read(reader, prim.m_obb);
+						bx::read(reader, prim.m_startIndex, &err);
+						bx::read(reader, prim.m_numIndices, &err);
+						bx::read(reader, prim.m_startVertex, &err);
+						bx::read(reader, prim.m_numVertices, &err);
+						bx::read(reader, prim.m_sphere, &err);
+						bx::read(reader, prim.m_aabb, &err);
+						bx::read(reader, prim.m_obb, &err);
 
 						group.m_prims.push_back(prim);
 					}
@@ -772,12 +780,12 @@ struct Mesh
 			// Submit
 			bgfx::submit(_id, _program);
 
-			// Keep track of submited view ids
+			// Keep track of submitted view ids
 			s_viewMask |= 1 << _id;
 		}
 	}
 
-	bgfx::VertexDecl m_decl;
+	bgfx::VertexLayout m_layout;
 	typedef std::vector<Group> GroupArray;
 	GroupArray m_groups;
 };
@@ -786,8 +794,8 @@ struct Mesh
 class ExampleStencil : public entry::AppI
 {
 public:
-	ExampleStencil(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExampleStencil(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -804,6 +812,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_viewState.m_width;
 		init.resolution.height = m_viewState.m_height;
 		init.resolution.reset  = m_reset;
@@ -829,9 +840,9 @@ public:
 
 		m_bunnyMesh.load("meshes/bunny.bin");
 		m_columnMesh.load("meshes/column.bin");
-		m_cubeMesh.load(s_cubeVertices, BX_COUNTOF(s_cubeVertices), PosNormalTexcoordVertex::ms_decl, s_cubeIndices, BX_COUNTOF(s_cubeIndices) );
-		m_hplaneMesh.load(s_hplaneVertices, BX_COUNTOF(s_hplaneVertices), PosNormalTexcoordVertex::ms_decl, s_planeIndices, BX_COUNTOF(s_planeIndices) );
-		m_vplaneMesh.load(s_vplaneVertices, BX_COUNTOF(s_vplaneVertices), PosNormalTexcoordVertex::ms_decl, s_planeIndices, BX_COUNTOF(s_planeIndices) );
+		m_cubeMesh.load(s_cubeVertices, BX_COUNTOF(s_cubeVertices), PosNormalTexcoordVertex::ms_layout, s_cubeIndices, BX_COUNTOF(s_cubeIndices) );
+		m_hplaneMesh.load(s_hplaneVertices, BX_COUNTOF(s_hplaneVertices), PosNormalTexcoordVertex::ms_layout, s_planeIndices, BX_COUNTOF(s_planeIndices) );
+		m_vplaneMesh.load(s_vplaneVertices, BX_COUNTOF(s_vplaneVertices), PosNormalTexcoordVertex::ms_layout, s_planeIndices, BX_COUNTOF(s_planeIndices) );
 
 		m_figureTex     = loadTexture("textures/figure-rgba.dds");
 		m_flareTex      = loadTexture("textures/flare.dds");
@@ -989,7 +1000,7 @@ public:
 			s_uniforms.m_time = time;
 
 			// Update camera.
-			cameraUpdate(deltaTime, m_mouseState);
+			cameraUpdate(deltaTime, m_mouseState, ImGui::MouseOverArea() );
 			cameraGetViewMtx(m_viewState.m_view);
 
 			static float lightTimeAccumulator = 0.0f;
@@ -1399,4 +1410,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExampleStencil, "13-stencil", "Stencil reflections and shadows.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExampleStencil
+	, "13-stencil"
+	, "Stencil reflections and shadows."
+	, "https://bkaradzic.github.io/bgfx/examples.html#stencil"
+	);

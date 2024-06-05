@@ -1,6 +1,6 @@
 /*
  * Copyright 2016 Joseph Cherlin. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include "common.h"
@@ -21,8 +21,8 @@ namespace
 class ExamplePicking : public entry::AppI
 {
 public:
-	ExamplePicking(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExamplePicking(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -38,6 +38,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
@@ -54,7 +57,7 @@ public:
 			, 0
 			);
 
-		// ID buffer clears to black, which represnts clicking on nothing (background)
+		// ID buffer clears to black, which represents clicking on nothing (background)
 		bgfx::setViewClear(RENDER_PASS_ID
 			, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH
 			, 0x000000ff
@@ -124,7 +127,7 @@ public:
 			| BGFX_SAMPLER_U_CLAMP
 			| BGFX_SAMPLER_V_CLAMP
 			);
-		m_pickingRTDepth = bgfx::createTexture2D(ID_DIM, ID_DIM, false, 1, bgfx::TextureFormat::D24S8, 0
+		m_pickingRTDepth = bgfx::createTexture2D(ID_DIM, ID_DIM, false, 1, bgfx::TextureFormat::D32F, 0
 			| BGFX_TEXTURE_RT
 			| BGFX_SAMPLER_MIN_POINT
 			| BGFX_SAMPLER_MAG_POINT
@@ -333,14 +336,6 @@ public:
 						uint8_t bb = *x++;
 						uint8_t aa = *x++;
 
-						if (bgfx::RendererType::Direct3D9 == caps->rendererType)
-						{
-							// Comes back as BGRA
-							uint8_t temp = rr;
-							rr = bb;
-							bb = temp;
-						}
-
 						if (0 == (rr|gg|bb) ) // Skip background
 						{
 							continue;
@@ -442,4 +437,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExamplePicking, "30-picking", "Mouse picking via GPU texture readback.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExamplePicking
+	, "30-picking"
+	, "Mouse picking via GPU texture readback."
+	, "https://bkaradzic.github.io/bgfx/examples.html#picking"
+	);

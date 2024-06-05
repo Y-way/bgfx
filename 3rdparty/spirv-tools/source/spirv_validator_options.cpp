@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "source/spirv_validator_options.h"
+
 #include <cassert>
 #include <cstring>
-
-#include "source/spirv_validator_options.h"
 
 bool spvParseUniversalLimitsOptions(const char* s, spv_validator_limit* type) {
   auto match = [s](const char* b) {
@@ -90,9 +90,20 @@ void spvValidatorOptionsSetRelaxLogicalPointer(spv_validator_options options,
   options->relax_logical_pointer = val;
 }
 
+void spvValidatorOptionsSetBeforeHlslLegalization(spv_validator_options options,
+                                                  bool val) {
+  options->before_hlsl_legalization = val;
+  options->relax_logical_pointer = val;
+}
+
 void spvValidatorOptionsSetRelaxBlockLayout(spv_validator_options options,
                                             bool val) {
   options->relax_block_layout = val;
+}
+
+void spvValidatorOptionsSetUniformBufferStandardLayout(
+    spv_validator_options options, bool val) {
+  options->uniform_buffer_standard_layout = val;
 }
 
 void spvValidatorOptionsSetScalarBlockLayout(spv_validator_options options,
@@ -100,7 +111,22 @@ void spvValidatorOptionsSetScalarBlockLayout(spv_validator_options options,
   options->scalar_block_layout = val;
 }
 
+void spvValidatorOptionsSetWorkgroupScalarBlockLayout(spv_validator_options options,
+                                                      bool val) {
+  options->workgroup_scalar_block_layout = val;
+}
+
 void spvValidatorOptionsSetSkipBlockLayout(spv_validator_options options,
                                            bool val) {
   options->skip_block_layout = val;
+}
+
+void spvValidatorOptionsSetAllowLocalSizeId(spv_validator_options options,
+                                            bool val) {
+  options->allow_localsizeid = val;
+}
+
+void spvValidatorOptionsSetFriendlyNames(spv_validator_options options,
+                                         bool val) {
+  options->use_friendly_names = val;
 }

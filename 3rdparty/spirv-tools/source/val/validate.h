@@ -31,11 +31,6 @@ class ValidationState_t;
 class BasicBlock;
 class Instruction;
 
-/// A function that returns a vector of BasicBlocks given a BasicBlock. Used to
-/// get the successor and predecessor nodes of a CFG block
-using get_blocks_func =
-    std::function<const std::vector<BasicBlock*>*(const BasicBlock*)>;
-
 /// @brief Performs the Control Flow Graph checks
 ///
 /// @param[in] _ the validation state of the module
@@ -69,8 +64,8 @@ spv_result_t CheckIdDefinitionDominateUse(ValidationState_t& _);
 /// instructions.
 ///
 /// This function will iterate over all instructions and check for any required
-/// predecessor and/or successor instructions. e.g. SpvOpPhi must only be
-/// preceeded by SpvOpLabel, SpvOpPhi, or SpvOpLine.
+/// predecessor and/or successor instructions. e.g. spv::Op::OpPhi must only be
+/// preceded by spv::Op::OpLabel, spv::Op::OpPhi, or spv::Op::OpLine.
 ///
 /// @param[in] _ the validation state of the module
 ///
@@ -86,6 +81,25 @@ spv_result_t ValidateAdjacency(ValidationState_t& _);
 ///
 /// @return SPV_SUCCESS if no errors are found.
 spv_result_t ValidateInterfaces(ValidationState_t& _);
+
+/// @brief Validates entry point call tree requirements of
+/// SPV_KHR_float_controls2
+///
+/// Checks that no entry point using FPFastMathDefault uses:
+/// * FPFastMathMode Fast
+/// * NoContraction
+///
+/// @param[in] _ the validation state of the module
+///
+/// @return SPV_SUCCESS if no errors are found.
+spv_result_t ValidateFloatControls2(ValidationState_t& _);
+
+/// @brief Validates duplicated execution modes for each entry point.
+///
+/// @param[in] _ the validation state of the module
+///
+/// @return SPV_SUCCESS if no errors are found.
+spv_result_t ValidateDuplicateExecutionModes(ValidationState_t& _);
 
 /// @brief Validates memory instructions
 ///
@@ -122,11 +136,6 @@ spv_result_t ControlFlowPass(ValidationState_t& _, const Instruction* inst);
 
 /// Performs Id and SSA validation of a module
 spv_result_t IdPass(ValidationState_t& _, Instruction* inst);
-
-/// Performs validation of the Data Rules subsection of 2.16.1 Universal
-/// Validation Rules.
-/// TODO(ehsann): add more comments here as more validation code is added.
-spv_result_t DataRulesPass(ValidationState_t& _, const Instruction* inst);
 
 /// Performs instruction validation.
 spv_result_t InstructionPass(ValidationState_t& _, const Instruction* inst);
@@ -199,11 +208,44 @@ spv_result_t ModeSettingPass(ValidationState_t& _, const Instruction* inst);
 /// Validates correctness of function instructions.
 spv_result_t FunctionPass(ValidationState_t& _, const Instruction* inst);
 
+/// Validates correctness of miscellaneous instructions.
+spv_result_t MiscPass(ValidationState_t& _, const Instruction* inst);
+
+/// Validates correctness of ray query instructions.
+spv_result_t RayQueryPass(ValidationState_t& _, const Instruction* inst);
+
+/// Validates correctness of ray tracing instructions.
+spv_result_t RayTracingPass(ValidationState_t& _, const Instruction* inst);
+
+/// Validates correctness of shader execution reorder instructions.
+spv_result_t RayReorderNVPass(ValidationState_t& _, const Instruction* inst);
+
+/// Validates correctness of mesh shading instructions.
+spv_result_t MeshShadingPass(ValidationState_t& _, const Instruction* inst);
+
+/// Calculates the reachability of basic blocks.
+void ReachabilityPass(ValidationState_t& _);
+
 /// Validates execution limitations.
 ///
 /// Verifies execution models are allowed for all functionality they contain.
 spv_result_t ValidateExecutionLimitations(ValidationState_t& _,
                                           const Instruction* inst);
+
+/// Validates restricted uses of 8- and 16-bit types.
+///
+/// Validates shaders that uses 8- or 16-bit storage capabilities, but not full
+/// capabilities only have appropriate uses of those types.
+spv_result_t ValidateSmallTypeUses(ValidationState_t& _,
+                                   const Instruction* inst);
+
+/// Validates restricted uses of QCOM decorated textures
+///
+/// The textures that are decorated with some of QCOM image processing
+/// decorations must be used in the specified QCOM image processing built-in
+/// functions and not used in any other image functions.
+spv_result_t ValidateQCOMImageProcessingTextureUsages(ValidationState_t& _,
+                                                      const Instruction* inst);
 
 /// @brief Validate the ID's within a SPIR-V binary
 ///

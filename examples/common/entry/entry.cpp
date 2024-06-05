@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include <bx/bx.h>
@@ -189,7 +189,7 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 
 	const char* getName(Key::Enum _key)
 	{
-		BX_CHECK(_key < Key::Count, "Invalid key %d.", _key);
+		BX_ASSERT(_key < Key::Count, "Invalid key %d.", _key);
 		return s_keyName[_key];
 	}
 
@@ -352,9 +352,6 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 		{ entry::Key::GamepadStart, entry::Modifier::None,      1, NULL, "graphics stats"                    },
 		{ entry::Key::F1,           entry::Modifier::LeftShift, 1, NULL, "graphics stats 0\ngraphics text 0" },
 		{ entry::Key::F3,           entry::Modifier::None,      1, NULL, "graphics wireframe"                },
-		{ entry::Key::F4,           entry::Modifier::None,      1, NULL, "graphics hmd"                      },
-		{ entry::Key::F4,           entry::Modifier::LeftShift, 1, NULL, "graphics hmdrecenter"              },
-		{ entry::Key::F4,           entry::Modifier::LeftCtrl,  1, NULL, "graphics hmddbg"                   },
 		{ entry::Key::F6,           entry::Modifier::None,      1, NULL, "graphics profiler"                 },
 		{ entry::Key::F7,           entry::Modifier::None,      1, NULL, "graphics vsync"                    },
 		{ entry::Key::F8,           entry::Modifier::None,      1, NULL, "graphics msaa"                     },
@@ -446,11 +443,27 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 		return bx::kExitFailure;
 	}
 
-	AppI::AppI(const char* _name, const char* _description)
+	struct AppInternal
 	{
-		m_name        = _name;
-		m_description = _description;
-		m_next        = s_apps;
+		AppI* m_next;
+		const char* m_name;
+		const char* m_description;
+		const char* m_url;
+	};
+
+	static ptrdiff_t s_offset = 0;
+
+	AppI::AppI(const char* _name, const char* _description, const char* _url)
+	{
+		BX_STATIC_ASSERT(sizeof(AppInternal) <= sizeof(m_internal) );
+		s_offset = BX_OFFSETOF(AppI, m_internal);
+
+		AppInternal* ai = (AppInternal*)m_internal;
+
+		ai->m_name        = _name;
+		ai->m_description = _description;
+		ai->m_url         = _url;
+		ai->m_next        = s_apps;
 
 		s_apps = this;
 		s_numApps++;
@@ -466,7 +479,8 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 			{
 				if (NULL != prev)
 				{
-					prev->m_next = next;
+					AppInternal* ai = bx::addressOf<AppInternal>(prev, s_offset);
+					ai->m_next = next;
 				}
 				else
 				{
@@ -482,17 +496,26 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 
 	const char* AppI::getName() const
 	{
-		return m_name;
+		AppInternal* ai = (AppInternal*)m_internal;
+		return ai->m_name;
 	}
 
 	const char* AppI::getDescription() const
 	{
-		return m_description;
+		AppInternal* ai = (AppInternal*)m_internal;
+		return ai->m_description;
+	}
+
+	const char* AppI::getUrl() const
+	{
+		AppInternal* ai = (AppInternal*)m_internal;
+		return ai->m_url;
 	}
 
 	AppI* AppI::getNext()
 	{
-		return m_next;
+		AppInternal* ai = (AppInternal*)m_internal;
+		return ai->m_next;
 	}
 
 	AppI* getFirstApp()
@@ -507,11 +530,10 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 
 	int runApp(AppI* _app, int _argc, const char* const* _argv)
 	{
+		setWindowSize(kDefaultWindowHandle, s_width, s_height);
+
 		_app->init(_argc, _argv, s_width, s_height);
 		bgfx::frame();
-
-		WindowHandle defaultWindow = { 0 };
-		setWindowSize(defaultWindow, s_width, s_height);
 
 #if BX_PLATFORM_EMSCRIPTEN
 		s_app = _app;
@@ -544,7 +566,7 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 			return;
 		}
 
-		AppI** apps = (AppI**)BX_ALLOC(g_allocator, s_numApps*sizeof(AppI*) );
+		AppI** apps = (AppI**)bx::alloc(g_allocator, s_numApps*sizeof(AppI*) );
 
 		uint32_t ii = 0;
 		for (AppI* app = getFirstApp(); NULL != app; app = app->getNext() )
@@ -557,11 +579,17 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 		for (ii = 1; ii < s_numApps; ++ii)
 		{
 			AppI* app = apps[ii-1];
-			app->m_next = apps[ii];
-		}
-		apps[s_numApps-1]->m_next = NULL;
 
-		BX_FREE(g_allocator, apps);
+			AppInternal* ai = bx::addressOf<AppInternal>(app, s_offset);
+			ai->m_next = apps[ii];
+		}
+
+		{
+			AppInternal* ai = bx::addressOf<AppInternal>(apps[s_numApps-1], s_offset);
+			ai->m_next = NULL;
+		}
+
+		bx::free(g_allocator, apps);
 	}
 
 	int main(int _argc, const char* const* _argv)
@@ -580,14 +608,12 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 		inputInit();
 		inputAddBindings("bindings", s_bindings);
 
-		entry::WindowHandle defaultWindow = { 0 };
-
 		bx::FilePath fp(_argv[0]);
 		char title[bx::kMaxFilePath];
 		bx::strCopy(title, BX_COUNTOF(title), fp.getBaseName() );
 
-		entry::setWindowTitle(defaultWindow, title);
-		setWindowSize(defaultWindow, ENTRY_DEFAULT_WIDTH, ENTRY_DEFAULT_HEIGHT);
+		entry::setWindowTitle(kDefaultWindowHandle, title);
+		setWindowSize(kDefaultWindowHandle, ENTRY_DEFAULT_WIDTH, ENTRY_DEFAULT_HEIGHT);
 
 		sortApps();
 
@@ -640,10 +666,10 @@ restart:
 
 		cmdShutdown();
 
-		BX_DELETE(g_allocator, s_fileReader);
+		bx::deleteObject(g_allocator, s_fileReader);
 		s_fileReader = NULL;
 
-		BX_DELETE(g_allocator, s_fileWriter);
+		bx::deleteObject(g_allocator, s_fileWriter);
 		s_fileWriter = NULL;
 
 		return result;
@@ -653,6 +679,8 @@ restart:
 
 	bool processEvents(uint32_t& _width, uint32_t& _height, uint32_t& _debug, uint32_t& _reset, MouseState* _mouse)
 	{
+		bool needReset = s_reset != _reset;
+
 		s_debug = _debug;
 		s_reset = _reset;
 
@@ -739,7 +767,8 @@ restart:
 						handle  = size->m_handle;
 						_width  = size->m_width;
 						_height = size->m_height;
-						_reset  = !s_reset; // force reset
+
+						needReset = true;
 					}
 					break;
 
@@ -765,8 +794,10 @@ restart:
 
 		} while (NULL != ev);
 
+		needReset |= _reset != s_reset;
+
 		if (handle.idx == 0
-		&&  _reset != s_reset)
+		&&  needReset)
 		{
 			_reset = s_reset;
 			bgfx::reset(_width, _height, _reset);
@@ -783,6 +814,8 @@ restart:
 
 	bool processWindowEvents(WindowState& _state, uint32_t& _debug, uint32_t& _reset)
 	{
+		bool needReset = s_reset != _reset;
+
 		s_debug = _debug;
 		s_reset = _reset;
 
@@ -891,10 +924,8 @@ restart:
 						win.m_handle = size->m_handle;
 						win.m_width  = size->m_width;
 						win.m_height = size->m_height;
-						_reset  = win.m_handle.idx == 0
-								? !s_reset
-								: _reset
-								; // force reset
+
+						needReset = win.m_handle.idx == 0 ? true : needReset;
 					}
 					break;
 
@@ -943,7 +974,9 @@ restart:
 			}
 		}
 
-		if (_reset != s_reset)
+		needReset |= _reset != s_reset;
+
+		if (needReset)
 		{
 			_reset = s_reset;
 			bgfx::reset(s_window[0].m_width, s_window[0].m_height, _reset);
@@ -977,14 +1010,14 @@ restart:
 
 	void* TinyStlAllocator::static_allocate(size_t _bytes)
 	{
-		return BX_ALLOC(getAllocator(), _bytes);
+		return bx::alloc(getAllocator(), _bytes);
 	}
 
 	void TinyStlAllocator::static_deallocate(void* _ptr, size_t /*_bytes*/)
 	{
 		if (NULL != _ptr)
 		{
-			BX_FREE(getAllocator(), _ptr);
+			bx::free(getAllocator(), _ptr);
 		}
 	}
 
@@ -993,4 +1026,19 @@ restart:
 extern "C" bool entry_process_events(uint32_t* _width, uint32_t* _height, uint32_t* _debug, uint32_t* _reset)
 {
 	return entry::processEvents(*_width, *_height, *_debug, *_reset, NULL);
+}
+
+extern "C" void* entry_get_default_native_window_handle()
+{
+	return entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+}
+
+extern "C" void* entry_get_native_display_handle()
+{
+	return entry::getNativeDisplayHandle();
+}
+
+extern "C" bgfx::NativeWindowHandleType::Enum entry_get_native_window_handle_type()
+{
+	return entry::getNativeWindowHandleType();
 }

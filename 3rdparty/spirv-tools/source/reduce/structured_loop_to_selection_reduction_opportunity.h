@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef SOURCE_REDUCE_CUT_LOOP_REDUCTION_OPPORTUNITY_H_
-#define SOURCE_REDUCE_CUT_LOOP_REDUCTION_OPPORTUNITY_H_
+#ifndef SOURCE_REDUCE_STRUCTURED_LOOP_TO_SELECTION_REDUCTION_OPPORTUNITY_H_
+#define SOURCE_REDUCE_STRUCTURED_LOOP_TO_SELECTION_REDUCTION_OPPORTUNITY_H_
 
 #include "source/opt/def_use_manager.h"
 #include "source/opt/dominator_analysis.h"
@@ -23,8 +23,6 @@
 namespace spvtools {
 namespace reduce {
 
-using namespace opt;
-
 // An opportunity to replace a structured loop with a selection.
 class StructuredLoopToSelectionReductionOpportunity
     : public ReductionOpportunity {
@@ -32,11 +30,8 @@ class StructuredLoopToSelectionReductionOpportunity
   // Constructs an opportunity from a loop header block and the function that
   // encloses it.
   explicit StructuredLoopToSelectionReductionOpportunity(
-      IRContext* context, BasicBlock* loop_construct_header,
-      Function* enclosing_function)
-      : context_(context),
-        loop_construct_header_(loop_construct_header),
-        enclosing_function_(enclosing_function) {}
+      opt::IRContext* context, opt::BasicBlock* loop_construct_header)
+      : context_(context), loop_construct_header_(loop_construct_header) {}
 
   // Returns true if the loop header is reachable.  A structured loop might
   // become unreachable as a result of turning another structured loop into
@@ -64,22 +59,18 @@ class StructuredLoopToSelectionReductionOpportunity
   void RedirectEdge(uint32_t source_id, uint32_t original_target_id,
                     uint32_t new_target_id);
 
-  // Removes any components of |to_block|'s phi instructions relating to
-  // |from_id|.
-  void AdaptPhiInstructionsForRemovedEdge(uint32_t from_id,
-                                          BasicBlock* to_block);
-
   // Adds components to |to_block|'s phi instructions to account for a new
   // incoming edge from |from_id|.
-  void AdaptPhiInstructionsForAddedEdge(uint32_t from_id, BasicBlock* to_block);
+  void AdaptPhiInstructionsForAddedEdge(uint32_t from_id,
+                                        opt::BasicBlock* to_block);
 
   // Turns the OpLoopMerge for the loop into OpSelectionMerge, and adapts the
   // following branch instruction accordingly.
   void ChangeLoopToSelection();
 
   // Fixes any scenarios where, due to CFG changes, ids have uses not dominated
-  // by their definitions, by changing such uses to uses of OpUndef or of dummy
-  // variables.
+  // by their definitions, by changing such uses to uses of OpUndef or of
+  // placeholder variables.
   void FixNonDominatedIdUses();
 
   // Returns true if and only if at least one of the following holds:
@@ -87,30 +78,16 @@ class StructuredLoopToSelectionReductionOpportunity
   // 2) |def| is an OpVariable
   // 3) |use| is part of an OpPhi, with associated incoming block b, and |def|
   // dominates b.
-  bool DefinitionSufficientlyDominatesUse(Instruction* def, Instruction* use,
+  bool DefinitionSufficientlyDominatesUse(opt::Instruction* def,
+                                          opt::Instruction* use,
                                           uint32_t use_index,
-                                          BasicBlock& def_block);
+                                          opt::BasicBlock& def_block);
 
-  // Checks whether the global value list has an OpVariable of the given pointer
-  // type, adding one if not, and returns the id of such an OpVariable.
-  //
-  // TODO(2184): This will likely be used by other reduction passes, so should
-  // be factored out in due course.
-  uint32_t FindOrCreateGlobalVariable(uint32_t pointer_type_id);
-
-  // Checks whether the enclosing function has an OpVariable of the given
-  // pointer type, adding one if not, and returns the id of such an OpVariable.
-  //
-  // TODO(2184): This will likely be used by other reduction passes, so should
-  // be factored out in due course.
-  uint32_t FindOrCreateFunctionVariable(uint32_t pointer_type_id);
-
-  IRContext* context_;
-  BasicBlock* loop_construct_header_;
-  Function* enclosing_function_;
+  opt::IRContext* context_;
+  opt::BasicBlock* loop_construct_header_;
 };
 
 }  // namespace reduce
 }  // namespace spvtools
 
-#endif  // SOURCE_REDUCE_CUT_LOOP_REDUCTION_OPPORTUNITY_H_
+#endif  // SOURCE_REDUCE_STRUCTURED_LOOP_TO_SELECTION_REDUCTION_OPPORTUNITY_H_

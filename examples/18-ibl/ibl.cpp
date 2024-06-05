@@ -1,6 +1,6 @@
 /*
  * Copyright 2014-2016 Dario Manesku. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include <vector>
@@ -77,7 +77,7 @@ struct PosColorTexCoord0Vertex
 
 	static void init()
 	{
-		ms_decl
+		ms_layout
 			.begin()
 			.add(bgfx::Attrib::Position,  3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::Color0,    4, bgfx::AttribType::Uint8, true)
@@ -85,17 +85,17 @@ struct PosColorTexCoord0Vertex
 			.end();
 	}
 
-	static bgfx::VertexDecl ms_decl;
+	static bgfx::VertexLayout ms_layout;
 };
 
-bgfx::VertexDecl PosColorTexCoord0Vertex::ms_decl;
+bgfx::VertexLayout PosColorTexCoord0Vertex::ms_layout;
 
 void screenSpaceQuad(float _textureWidth, float _textureHeight, bool _originBottomLeft = false, float _width = 1.0f, float _height = 1.0f)
 {
-	if (3 == bgfx::getAvailTransientVertexBuffer(3, PosColorTexCoord0Vertex::ms_decl) )
+	if (3 == bgfx::getAvailTransientVertexBuffer(3, PosColorTexCoord0Vertex::ms_layout) )
 	{
 		bgfx::TransientVertexBuffer vb;
-		bgfx::allocTransientVertexBuffer(&vb, 3, PosColorTexCoord0Vertex::ms_decl);
+		bgfx::allocTransientVertexBuffer(&vb, 3, PosColorTexCoord0Vertex::ms_layout);
 		PosColorTexCoord0Vertex* vertex = (PosColorTexCoord0Vertex*)vb.data;
 
 		const float zz = 0.0f;
@@ -213,7 +213,7 @@ struct Camera
 
 		const bx::Vec3 toTarget     = bx::sub(m_target.dest, m_pos.dest);
 		const float toTargetLen     = bx::length(toTarget);
-		const float invToTargetLen  = 1.0f / (toTargetLen + bx::kFloatMin);
+		const float invToTargetLen  = 1.0f / (toTargetLen + bx::kFloatSmallest);
 		const bx::Vec3 toTargetNorm = bx::mul(toTarget, invToTargetLen);
 
 		float delta  = toTargetLen * _dz;
@@ -235,7 +235,7 @@ struct Camera
 
 		const bx::Vec3 toPos     = bx::sub(m_pos.curr, m_target.curr);
 		const float toPosLen     = bx::length(toPos);
-		const float invToPosLen  = 1.0f / (toPosLen + bx::kFloatMin);
+		const float invToPosLen  = 1.0f / (toPosLen + bx::kFloatSmallest);
 		const bx::Vec3 toPosNorm = bx::mul(toPos, invToPosLen);
 
 		float ll[2];
@@ -265,7 +265,7 @@ struct Camera
 	{
 		const bx::Vec3 toTarget     = bx::sub(m_target.curr, m_pos.curr);
 		const float toTargetLen     = bx::length(toTarget);
-		const float invToTargetLen  = 1.0f / (toTargetLen + bx::kFloatMin);
+		const float invToTargetLen  = 1.0f / (toTargetLen + bx::kFloatSmallest);
 		const bx::Vec3 toTargetNorm = bx::mul(toTarget, invToTargetLen);
 
 		const bx::Vec3 right = bx::normalize(bx::cross({ 0.0f, 1.0f, 0.0f }, toTargetNorm) );
@@ -291,8 +291,8 @@ struct Camera
 
 	struct Interp3f
 	{
-		bx::Vec3 curr;
-		bx::Vec3 dest;
+		bx::Vec3 curr = bx::InitNone;
+		bx::Vec3 dest = bx::InitNone;
 	};
 
 	Interp3f m_target;
@@ -398,8 +398,8 @@ struct Settings
 class ExampleIbl : public entry::AppI
 {
 public:
-	ExampleIbl(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExampleIbl(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -418,6 +418,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
@@ -832,4 +835,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExampleIbl, "18-ibl", "Image-based lighting.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExampleIbl
+	, "18-ibl"
+	, "Image-based lighting."
+	, "https://bkaradzic.github.io/bgfx/examples.html#ibl"
+	);

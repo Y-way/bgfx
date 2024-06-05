@@ -15,16 +15,15 @@
 #ifndef SOURCE_TABLE_H_
 #define SOURCE_TABLE_H_
 
-#include "source/latest_version_spirv_header.h"
-
 #include "source/extensions.h"
+#include "source/latest_version_spirv_header.h"
 #include "spirv-tools/libspirv.hpp"
 
 typedef struct spv_opcode_desc_t {
   const char* name;
-  const SpvOp opcode;
+  const spv::Op opcode;
   const uint32_t numCapabilities;
-  const SpvCapability* capabilities;
+  const spv::Capability* capabilities;
   // operandTypes[0..numTypes-1] describe logical operands for the instruction.
   // The operand types include result id and result-type id, followed by
   // the types of arguments.
@@ -42,13 +41,14 @@ typedef struct spv_opcode_desc_t {
   // extensions. ~0u means reserved for future use. ~0u and non-empty extension
   // lists means only available in extensions.
   const uint32_t minVersion;
+  const uint32_t lastVersion;
 } spv_opcode_desc_t;
 
 typedef struct spv_operand_desc_t {
   const char* name;
   const uint32_t value;
   const uint32_t numCapabilities;
-  const SpvCapability* capabilities;
+  const spv::Capability* capabilities;
   // A set of extensions that enable this feature. If empty then this operand
   // value is in core and its availability is subject to minVersion. The
   // assembler, binary parser, and disassembler ignore this rule, so you can
@@ -60,6 +60,7 @@ typedef struct spv_operand_desc_t {
   // extensions. ~0u means reserved for future use. ~0u and non-empty extension
   // lists means only available in extensions.
   const uint32_t minVersion;
+  const uint32_t lastVersion;
 } spv_operand_desc_t;
 
 typedef struct spv_operand_desc_group_t {
@@ -72,8 +73,8 @@ typedef struct spv_ext_inst_desc_t {
   const char* name;
   const uint32_t ext_inst;
   const uint32_t numCapabilities;
-  const SpvCapability* capabilities;
-  const spv_operand_type_t operandTypes[16];  // TODO: Smaller/larger?
+  const spv::Capability* capabilities;
+  const spv_operand_type_t operandTypes[40];  // vksp needs at least 40
 } spv_ext_inst_desc_t;
 
 typedef struct spv_ext_inst_group_t {

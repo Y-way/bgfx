@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
- * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
+ * Copyright 2011-2024 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
 #include "common.h"
@@ -29,17 +29,17 @@ struct PosColorVertex
 
 	static void init()
 	{
-		ms_decl
+		ms_layout
 			.begin()
 			.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::Color0,   4, bgfx::AttribType::Uint8, true)
 			.end();
 	};
 
-	static bgfx::VertexDecl ms_decl;
+	static bgfx::VertexLayout ms_layout;
 };
 
-bgfx::VertexDecl PosColorVertex::ms_decl;
+bgfx::VertexLayout PosColorVertex::ms_layout;
 
 static PosColorVertex s_cubeVertices[8] =
 {
@@ -202,7 +202,7 @@ struct BgfxCallback : public bgfx::CallbackI
 		m_writer = BX_NEW(entry::getAllocator(), AviWriter)(entry::getFileWriter() );
 		if (!m_writer->open("temp/capture.avi", _width, _height, 60, _yflip) )
 		{
-			BX_DELETE(entry::getAllocator(), m_writer);
+			bx::deleteObject(entry::getAllocator(), m_writer);
 			m_writer = NULL;
 		}
 	}
@@ -212,7 +212,7 @@ struct BgfxCallback : public bgfx::CallbackI
 		if (NULL != m_writer)
 		{
 			m_writer->close();
-			BX_DELETE(entry::getAllocator(), m_writer);
+			bx::deleteObject(entry::getAllocator(), m_writer);
 			m_writer = NULL;
 		}
 	}
@@ -257,7 +257,7 @@ public:
 				}
 				else
 				{
-					bx::alignedFree(this, _ptr, _align, _file, _line);
+					bx::alignedFree(this, _ptr, _align, bx::Location(_file, _line) );
 				}
 			}
 
@@ -274,13 +274,14 @@ public:
 				return ptr;
 			}
 
-			return bx::alignedAlloc(this, _size, _align, _file, _line);
+			return bx::alignedAlloc(this, _size, _align, bx::Location(_file, _line) );
 		}
 
 		if (kNaturalAlignment >= _align)
 		{
+			intptr_t _ptrOld = intptr_t(_ptr);
 			void* ptr = ::realloc(_ptr, _size);
-			bx::debugPrintf("%s(%d): REALLOC %p (old %p) of %d byte(s)\n", _file, _line, ptr, _ptr, _size);
+			bx::debugPrintf("%s(%d): REALLOC %p (old %p) of %d byte(s)\n", _file, _line, ptr, _ptrOld, _size);
 
 			if (NULL == _ptr)
 			{
@@ -291,7 +292,7 @@ public:
 			return ptr;
 		}
 
-		return bx::alignedRealloc(this, _ptr, _size, _align, _file, _line);
+		return bx::alignedRealloc(this, _ptr, _size, _align, bx::Location(_file, _line) );
 	}
 
 	void dumpStats() const
@@ -307,8 +308,8 @@ private:
 class ExampleCallback : public entry::AppI
 {
 public:
-	ExampleCallback(const char* _name, const char* _description)
-		: entry::AppI(_name, _description)
+	ExampleCallback(const char* _name, const char* _description, const char* _url)
+		: entry::AppI(_name, _description, _url)
 	{
 	}
 
@@ -328,6 +329,9 @@ public:
 		bgfx::Init init;
 		init.type     = args.m_type;
 		init.vendorId = args.m_pciId;
+		init.platformData.nwh  = entry::getNativeWindowHandle(entry::kDefaultWindowHandle);
+		init.platformData.ndt  = entry::getNativeDisplayHandle();
+		init.platformData.type = entry::getNativeWindowHandleType();
 		init.resolution.width  = m_width;
 		init.resolution.height = m_height;
 		init.resolution.reset  = m_reset;
@@ -352,7 +356,7 @@ public:
 		// Create static vertex buffer.
 		m_vbh = bgfx::createVertexBuffer(
 			  bgfx::makeRef(s_cubeVertices, sizeof(s_cubeVertices) )
-			, PosColorVertex::ms_decl
+			, PosColorVertex::ms_layout
 			);
 
 		// Create static index buffer.
@@ -498,4 +502,9 @@ public:
 
 } // namespace
 
-ENTRY_IMPLEMENT_MAIN(ExampleCallback, "07-callback", "Implementing application specific callbacks for taking screen shots, caching OpenGL binary shaders, and video capture.");
+ENTRY_IMPLEMENT_MAIN(
+	  ExampleCallback
+	, "07-callback"
+	, "Implementing application specific callbacks for taking screen shots, caching OpenGL binary shaders, and video capture."
+	, "https://bkaradzic.github.io/bgfx/examples.html#callback"
+	);

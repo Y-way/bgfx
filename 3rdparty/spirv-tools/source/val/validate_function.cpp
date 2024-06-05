@@ -12,53 +12,86 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "source/val/validate.h"
-
 #include <algorithm>
 
+#include "source/enum_string_mapping.h"
 #include "source/opcode.h"
 #include "source/val/instruction.h"
+#include "source/val/validate.h"
 #include "source/val/validation_state.h"
 
 namespace spvtools {
 namespace val {
 namespace {
 
+// Returns true if |a| and |b| are instructions defining pointers that point to
+// types logically match and the decorations that apply to |b| are a subset
+// of the decorations that apply to |a|.
+bool DoPointeesLogicallyMatch(val::Instruction* a, val::Instruction* b,
+                              ValidationState_t& _) {
+  if (a->opcode() != spv::Op::OpTypePointer ||
+      b->opcode() != spv::Op::OpTypePointer) {
+    return false;
+  }
+
+  const auto& dec_a = _.id_decorations(a->id());
+  const auto& dec_b = _.id_decorations(b->id());
+  for (const auto& dec : dec_b) {
+    if (std::find(dec_a.begin(), dec_a.end(), dec) == dec_a.end()) {
+      return false;
+    }
+  }
+
+  uint32_t a_type = a->GetOperandAs<uint32_t>(2);
+  uint32_t b_type = b->GetOperandAs<uint32_t>(2);
+
+  if (a_type == b_type) {
+    return true;
+  }
+
+  Instruction* a_type_inst = _.FindDef(a_type);
+  Instruction* b_type_inst = _.FindDef(b_type);
+
+  return _.LogicallyMatch(a_type_inst, b_type_inst, true);
+}
+
 spv_result_t ValidateFunction(ValidationState_t& _, const Instruction* inst) {
   const auto function_type_id = inst->GetOperandAs<uint32_t>(3);
   const auto function_type = _.FindDef(function_type_id);
-  if (!function_type || SpvOpTypeFunction != function_type->opcode()) {
+  if (!function_type || spv::Op::OpTypeFunction != function_type->opcode()) {
     return _.diag(SPV_ERROR_INVALID_ID, inst)
-           << "OpFunction Function Type <id> '" << _.getIdName(function_type_id)
-           << "' is not a function type.";
+           << "OpFunction Function Type <id> " << _.getIdName(function_type_id)
+           << " is not a function type.";
   }
 
   const auto return_id = function_type->GetOperandAs<uint32_t>(1);
   if (return_id != inst->type_id()) {
     return _.diag(SPV_ERROR_INVALID_ID, inst)
-           << "OpFunction Result Type <id> '" << _.getIdName(inst->type_id())
-           << "' does not match the Function Type's return type <id> '"
-           << _.getIdName(return_id) << "'.";
+           << "OpFunction Result Type <id> " << _.getIdName(inst->type_id())
+           << " does not match the Function Type's return type <id> "
+           << _.getIdName(return_id) << ".";
   }
 
-  const std::vector<SpvOp> acceptable = {
-      SpvOpDecorate,
-      SpvOpEnqueueKernel,
-      SpvOpEntryPoint,
-      SpvOpExecutionMode,
-      SpvOpExecutionModeId,
-      SpvOpFunctionCall,
-      SpvOpGetKernelNDrangeSubGroupCount,
-      SpvOpGetKernelNDrangeMaxSubGroupSize,
-      SpvOpGetKernelWorkGroupSize,
-      SpvOpGetKernelPreferredWorkGroupSizeMultiple,
-      SpvOpGetKernelLocalSizeForSubgroupCount,
-      SpvOpGetKernelMaxNumSubgroups,
-      SpvOpName};
+  const std::vector<spv::Op> acceptable = {
+      spv::Op::OpGroupDecorate,
+      spv::Op::OpDecorate,
+      spv::Op::OpEnqueueKernel,
+      spv::Op::OpEntryPoint,
+      spv::Op::OpExecutionMode,
+      spv::Op::OpExecutionModeId,
+      spv::Op::OpFunctionCall,
+      spv::Op::OpGetKernelNDrangeSubGroupCount,
+      spv::Op::OpGetKernelNDrangeMaxSubGroupSize,
+      spv::Op::OpGetKernelWorkGroupSize,
+      spv::Op::OpGetKernelPreferredWorkGroupSizeMultiple,
+      spv::Op::OpGetKernelLocalSizeForSubgroupCount,
+      spv::Op::OpGetKernelMaxNumSubgroups,
+      spv::Op::OpName};
   for (auto& pair : inst->uses()) {
     const auto* use = pair.first;
     if (std::find(acceptable.begin(), acceptable.end(), use->opcode()) ==
-        acceptable.end()) {
+            acceptable.end() &&
+        !use->IsNonSemantic() && !use->IsDebugInfo()) {
       return _.diag(SPV_ERROR_INVALID_ID, use)
              << "Invalid use of function result id " << _.getIdName(inst->id())
              << ".";
@@ -81,14 +114,14 @@ spv_result_t ValidateFunctionParameter(ValidationState_t& _,
   auto func_inst = &_.ordered_instructions()[inst_num];
   while (--inst_num) {
     func_inst = &_.ordered_instructions()[inst_num];
-    if (func_inst->opcode() == SpvOpFunction) {
+    if (func_inst->opcode() == spv::Op::OpFunction) {
       break;
-    } else if (func_inst->opcode() == SpvOpFunctionParameter) {
+    } else if (func_inst->opcode() == spv::Op::OpFunctionParameter) {
       ++param_index;
     }
   }
 
-  if (func_inst->opcode() != SpvOpFunction) {
+  if (func_inst->opcode() != spv::Op::OpFunction) {
     return _.diag(SPV_ERROR_INVALID_LAYOUT, inst)
            << "Function parameter must be preceded by a function.";
   }
@@ -110,79 +143,79 @@ spv_result_t ValidateFunctionParameter(ValidationState_t& _,
       _.FindDef(function_type->GetOperandAs<uint32_t>(param_index + 2));
   if (!param_type || inst->type_id() != param_type->id()) {
     return _.diag(SPV_ERROR_INVALID_ID, inst)
-           << "OpFunctionParameter Result Type <id> '"
+           << "OpFunctionParameter Result Type <id> "
            << _.getIdName(inst->type_id())
-           << "' does not match the OpTypeFunction parameter "
+           << " does not match the OpTypeFunction parameter "
               "type of the same index.";
   }
 
-  // Validate that PhysicalStorageBufferEXT have one of Restrict, Aliased,
-  // RestrictPointerEXT, or AliasedPointerEXT.
+  // Validate that PhysicalStorageBuffer have one of Restrict, Aliased,
+  // RestrictPointer, or AliasedPointer.
   auto param_nonarray_type_id = param_type->id();
-  while (_.GetIdOpcode(param_nonarray_type_id) == SpvOpTypeArray) {
+  while (_.GetIdOpcode(param_nonarray_type_id) == spv::Op::OpTypeArray) {
     param_nonarray_type_id =
         _.FindDef(param_nonarray_type_id)->GetOperandAs<uint32_t>(1u);
   }
-  if (_.GetIdOpcode(param_nonarray_type_id) == SpvOpTypePointer) {
+  if (_.GetIdOpcode(param_nonarray_type_id) == spv::Op::OpTypePointer) {
     auto param_nonarray_type = _.FindDef(param_nonarray_type_id);
-    if (param_nonarray_type->GetOperandAs<uint32_t>(1u) ==
-        SpvStorageClassPhysicalStorageBufferEXT) {
+    if (param_nonarray_type->GetOperandAs<spv::StorageClass>(1u) ==
+        spv::StorageClass::PhysicalStorageBuffer) {
       // check for Aliased or Restrict
       const auto& decorations = _.id_decorations(inst->id());
 
       bool foundAliased = std::any_of(
           decorations.begin(), decorations.end(), [](const Decoration& d) {
-            return SpvDecorationAliased == d.dec_type();
+            return spv::Decoration::Aliased == d.dec_type();
           });
 
       bool foundRestrict = std::any_of(
           decorations.begin(), decorations.end(), [](const Decoration& d) {
-            return SpvDecorationRestrict == d.dec_type();
+            return spv::Decoration::Restrict == d.dec_type();
           });
 
       if (!foundAliased && !foundRestrict) {
         return _.diag(SPV_ERROR_INVALID_ID, inst)
                << "OpFunctionParameter " << inst->id()
-               << ": expected Aliased or Restrict for PhysicalStorageBufferEXT "
+               << ": expected Aliased or Restrict for PhysicalStorageBuffer "
                   "pointer.";
       }
       if (foundAliased && foundRestrict) {
         return _.diag(SPV_ERROR_INVALID_ID, inst)
                << "OpFunctionParameter " << inst->id()
                << ": can't specify both Aliased and Restrict for "
-                  "PhysicalStorageBufferEXT pointer.";
+                  "PhysicalStorageBuffer pointer.";
       }
     } else {
       const auto pointee_type_id =
           param_nonarray_type->GetOperandAs<uint32_t>(2);
       const auto pointee_type = _.FindDef(pointee_type_id);
-      if (SpvOpTypePointer == pointee_type->opcode() &&
-          pointee_type->GetOperandAs<uint32_t>(1u) ==
-              SpvStorageClassPhysicalStorageBufferEXT) {
-        // check for AliasedPointerEXT/RestrictPointerEXT
+      if (spv::Op::OpTypePointer == pointee_type->opcode() &&
+          pointee_type->GetOperandAs<spv::StorageClass>(1u) ==
+              spv::StorageClass::PhysicalStorageBuffer) {
+        // check for AliasedPointer/RestrictPointer
         const auto& decorations = _.id_decorations(inst->id());
 
         bool foundAliased = std::any_of(
             decorations.begin(), decorations.end(), [](const Decoration& d) {
-              return SpvDecorationAliasedPointerEXT == d.dec_type();
+              return spv::Decoration::AliasedPointer == d.dec_type();
             });
 
         bool foundRestrict = std::any_of(
             decorations.begin(), decorations.end(), [](const Decoration& d) {
-              return SpvDecorationRestrictPointerEXT == d.dec_type();
+              return spv::Decoration::RestrictPointer == d.dec_type();
             });
 
         if (!foundAliased && !foundRestrict) {
           return _.diag(SPV_ERROR_INVALID_ID, inst)
                  << "OpFunctionParameter " << inst->id()
-                 << ": expected AliasedPointerEXT or RestrictPointerEXT for "
-                    "PhysicalStorageBufferEXT pointer.";
+                 << ": expected AliasedPointer or RestrictPointer for "
+                    "PhysicalStorageBuffer pointer.";
         }
         if (foundAliased && foundRestrict) {
           return _.diag(SPV_ERROR_INVALID_ID, inst)
                  << "OpFunctionParameter " << inst->id()
-                 << ": can't specify both AliasedPointerEXT and "
-                    "RestrictPointerEXT for PhysicalStorageBufferEXT pointer.";
+                 << ": can't specify both AliasedPointer and "
+                    "RestrictPointer for PhysicalStorageBuffer pointer.";
         }
       }
     }
@@ -195,24 +228,23 @@ spv_result_t ValidateFunctionCall(ValidationState_t& _,
                                   const Instruction* inst) {
   const auto function_id = inst->GetOperandAs<uint32_t>(2);
   const auto function = _.FindDef(function_id);
-  if (!function || SpvOpFunction != function->opcode()) {
+  if (!function || spv::Op::OpFunction != function->opcode()) {
     return _.diag(SPV_ERROR_INVALID_ID, inst)
-           << "OpFunctionCall Function <id> '" << _.getIdName(function_id)
-           << "' is not a function.";
+           << "OpFunctionCall Function <id> " << _.getIdName(function_id)
+           << " is not a function.";
   }
 
   auto return_type = _.FindDef(function->type_id());
   if (!return_type || return_type->id() != inst->type_id()) {
     return _.diag(SPV_ERROR_INVALID_ID, inst)
-           << "OpFunctionCall Result Type <id> '"
-           << _.getIdName(inst->type_id())
-           << "'s type does not match Function <id> '"
-           << _.getIdName(return_type->id()) << "'s return type.";
+           << "OpFunctionCall Result Type <id> " << _.getIdName(inst->type_id())
+           << "s type does not match Function <id> "
+           << _.getIdName(return_type->id()) << "s return type.";
   }
 
   const auto function_type_id = function->GetOperandAs<uint32_t>(3);
   const auto function_type = _.FindDef(function_type_id);
-  if (!function_type || function_type->opcode() != SpvOpTypeFunction) {
+  if (!function_type || function_type->opcode() != spv::Op::OpTypeFunction) {
     return _.diag(SPV_ERROR_INVALID_ID, inst)
            << "Missing function type definition.";
   }
@@ -246,27 +278,31 @@ spv_result_t ValidateFunctionCall(ValidationState_t& _,
         function_type->GetOperandAs<uint32_t>(param_index);
     const auto parameter_type = _.FindDef(parameter_type_id);
     if (!parameter_type || argument_type->id() != parameter_type->id()) {
-      return _.diag(SPV_ERROR_INVALID_ID, inst)
-             << "OpFunctionCall Argument <id> '" << _.getIdName(argument_id)
-             << "'s type does not match Function <id> '"
-             << _.getIdName(parameter_type_id) << "'s parameter type.";
+      if (!_.options()->before_hlsl_legalization ||
+          !DoPointeesLogicallyMatch(argument_type, parameter_type, _)) {
+        return _.diag(SPV_ERROR_INVALID_ID, inst)
+               << "OpFunctionCall Argument <id> " << _.getIdName(argument_id)
+               << "s type does not match Function <id> "
+               << _.getIdName(parameter_type_id) << "s parameter type.";
+      }
     }
 
-    if (_.addressing_model() == SpvAddressingModelLogical) {
-      if (parameter_type->opcode() == SpvOpTypePointer &&
+    if (_.addressing_model() == spv::AddressingModel::Logical) {
+      if (parameter_type->opcode() == spv::Op::OpTypePointer &&
           !_.options()->relax_logical_pointer) {
-        SpvStorageClass sc = parameter_type->GetOperandAs<SpvStorageClass>(1u);
+        spv::StorageClass sc =
+            parameter_type->GetOperandAs<spv::StorageClass>(1u);
         // Validate which storage classes can be pointer operands.
         switch (sc) {
-          case SpvStorageClassUniformConstant:
-          case SpvStorageClassFunction:
-          case SpvStorageClassPrivate:
-          case SpvStorageClassWorkgroup:
-          case SpvStorageClassAtomicCounter:
+          case spv::StorageClass::UniformConstant:
+          case spv::StorageClass::Function:
+          case spv::StorageClass::Private:
+          case spv::StorageClass::Workgroup:
+          case spv::StorageClass::AtomicCounter:
             // These are always allowed.
             break;
-          case SpvStorageClassStorageBuffer:
-            if (!_.features().variable_pointers_storage_buffer) {
+          case spv::StorageClass::StorageBuffer:
+            if (!_.features().variable_pointers) {
               return _.diag(SPV_ERROR_INVALID_ID, inst)
                      << "StorageBuffer pointer operand "
                      << _.getIdName(argument_id)
@@ -280,14 +316,15 @@ spv_result_t ValidateFunctionCall(ValidationState_t& _,
         }
 
         // Validate memory object declaration requirements.
-        if (argument->opcode() != SpvOpVariable &&
-            argument->opcode() != SpvOpFunctionParameter) {
-          const bool ssbo_vptr =
-              _.features().variable_pointers_storage_buffer &&
-              sc == SpvStorageClassStorageBuffer;
+        if (argument->opcode() != spv::Op::OpVariable &&
+            argument->opcode() != spv::Op::OpFunctionParameter) {
+          const bool ssbo_vptr = _.features().variable_pointers &&
+                                 sc == spv::StorageClass::StorageBuffer;
           const bool wg_vptr =
-              _.features().variable_pointers && sc == SpvStorageClassWorkgroup;
-          if (!ssbo_vptr && !wg_vptr) {
+              _.HasCapability(spv::Capability::VariablePointers) &&
+              sc == spv::StorageClass::Workgroup;
+          const bool uc_ptr = sc == spv::StorageClass::UniformConstant;
+          if (!ssbo_vptr && !wg_vptr && !uc_ptr) {
             return _.diag(SPV_ERROR_INVALID_ID, inst)
                    << "Pointer operand " << _.getIdName(argument_id)
                    << " must be a memory object declaration";
@@ -303,13 +340,13 @@ spv_result_t ValidateFunctionCall(ValidationState_t& _,
 
 spv_result_t FunctionPass(ValidationState_t& _, const Instruction* inst) {
   switch (inst->opcode()) {
-    case SpvOpFunction:
+    case spv::Op::OpFunction:
       if (auto error = ValidateFunction(_, inst)) return error;
       break;
-    case SpvOpFunctionParameter:
+    case spv::Op::OpFunctionParameter:
       if (auto error = ValidateFunctionParameter(_, inst)) return error;
       break;
-    case SpvOpFunctionCall:
+    case spv::Op::OpFunctionCall:
       if (auto error = ValidateFunctionCall(_, inst)) return error;
       break;
     default:

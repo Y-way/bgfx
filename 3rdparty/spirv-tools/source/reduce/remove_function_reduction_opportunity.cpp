@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "remove_function_reduction_opportunity.h"
+#include "source/reduce/remove_function_reduction_opportunity.h"
+
 #include "source/opt/eliminate_dead_functions_util.h"
 
 namespace spvtools {
@@ -28,8 +29,8 @@ void RemoveFunctionReductionOpportunity::Apply() {
   for (opt::Module::iterator function_it = context_->module()->begin();
        function_it != context_->module()->end(); ++function_it) {
     if (&*function_it == function_) {
-      opt::eliminatedeadfunctionsutil::EliminateFunction(context_,
-                                                         &function_it);
+      function_it.Erase();
+      context_->InvalidateAnalysesExceptFor(opt::IRContext::kAnalysisNone);
       return;
     }
   }
