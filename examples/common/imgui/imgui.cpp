@@ -14,8 +14,6 @@
 #include "imgui.h"
 #include "../bgfx_utils.h"
 
-//#define USE_ENTRY 1
-
 #ifndef USE_ENTRY
 #	define USE_ENTRY 0
 #endif // USE_ENTRY
@@ -66,10 +64,13 @@ struct OcornutImguiContext
 	void render(ImDrawData* _drawData)
 	{
 		// Avoid rendering when minimized, scale coordinates for retina displays (screen coordinates != framebuffer coordinates)
-		int fb_width = (int)(_drawData->DisplaySize.x * _drawData->FramebufferScale.x);
-		int fb_height = (int)(_drawData->DisplaySize.y * _drawData->FramebufferScale.y);
-		if (fb_width <= 0 || fb_height <= 0)
+		int32_t dispWidth  = _drawData->DisplaySize.x * _drawData->FramebufferScale.x;
+		int32_t dispHeight = _drawData->DisplaySize.y * _drawData->FramebufferScale.y;
+		if (dispWidth  <= 0
+		||  dispHeight <= 0)
+		{
 			return;
+		}
 
 		bgfx::setViewName(m_viewId, "ImGui");
 		bgfx::setViewMode(m_viewId, bgfx::ViewMode::Sequential);
@@ -137,11 +138,13 @@ struct OcornutImguiContext
 					if (NULL != cmd->TextureId)
 					{
 						union { ImTextureID ptr; struct { bgfx::TextureHandle handle; uint8_t flags; uint8_t mip; } s; } texture = { cmd->TextureId };
+
 						state |= 0 != (IMGUI_FLAGS_ALPHA_BLEND & texture.s.flags)
 							? BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA)
 							: BGFX_STATE_NONE
 							;
 						th = texture.s.handle;
+
 						if (0 != texture.s.mip)
 						{
 							const float lodEnabled[4] = { float(texture.s.mip), 1.0f, 0.0f, 0.0f };
@@ -161,8 +164,8 @@ struct OcornutImguiContext
 					clipRect.z = (cmd->ClipRect.z - clipPos.x) * clipScale.x;
 					clipRect.w = (cmd->ClipRect.w - clipPos.y) * clipScale.y;
 
-					if (clipRect.x <  fb_width
-					&&  clipRect.y <  fb_height
+					if (clipRect.x <  dispWidth
+					&&  clipRect.y <  dispHeight
 					&&  clipRect.z >= 0.0f
 					&&  clipRect.w >= 0.0f)
 					{
@@ -465,10 +468,10 @@ struct OcornutImguiContext
 
 #if USE_ENTRY
 		uint8_t modifiers = inputGetModifiersState();
-		io.AddKeyEvent(ImGuiKey_ModShift, 0 != (modifiers & (entry::Modifier::LeftShift | entry::Modifier::RightShift) ) );
-		io.AddKeyEvent(ImGuiKey_ModCtrl,  0 != (modifiers & (entry::Modifier::LeftCtrl  | entry::Modifier::RightCtrl ) ) );
-		io.AddKeyEvent(ImGuiKey_ModAlt,   0 != (modifiers & (entry::Modifier::LeftAlt   | entry::Modifier::RightAlt  ) ) );
-		io.AddKeyEvent(ImGuiKey_ModSuper, 0 != (modifiers & (entry::Modifier::LeftMeta  | entry::Modifier::RightMeta ) ) );
+		io.AddKeyEvent(ImGuiMod_Shift, 0 != (modifiers & (entry::Modifier::LeftShift | entry::Modifier::RightShift) ) );
+		io.AddKeyEvent(ImGuiMod_Ctrl,  0 != (modifiers & (entry::Modifier::LeftCtrl  | entry::Modifier::RightCtrl ) ) );
+		io.AddKeyEvent(ImGuiMod_Alt,   0 != (modifiers & (entry::Modifier::LeftAlt   | entry::Modifier::RightAlt  ) ) );
+		io.AddKeyEvent(ImGuiMod_Super, 0 != (modifiers & (entry::Modifier::LeftMeta  | entry::Modifier::RightMeta ) ) );
 		for (int32_t ii = 0; ii < (int32_t)entry::Key::Count; ++ii)
 		{
 			io.AddKeyEvent(m_keyMap[ii], inputGetKeyState(entry::Key::Enum(ii) ) );

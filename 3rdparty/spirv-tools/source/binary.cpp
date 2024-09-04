@@ -473,7 +473,7 @@ spv_result_t Parser::parseOperand(size_t inst_offset,
       if (!word) return diagnostic(SPV_ERROR_INVALID_ID) << "Id is 0";
       parsed_operand.type = SPV_OPERAND_TYPE_ID;
 
-      if (opcode == spv::Op::OpExtInst && parsed_operand.offset == 3) {
+      if (spvIsExtendedInstruction(opcode) && parsed_operand.offset == 3) {
         // The current word is the extended instruction set Id.
         // Set the extended instruction set type for the current instruction.
         auto ext_inst_type_iter = _.import_id_to_ext_inst_type.find(word);
@@ -494,7 +494,7 @@ spv_result_t Parser::parseOperand(size_t inst_offset,
       break;
 
     case SPV_OPERAND_TYPE_EXTENSION_INSTRUCTION_NUMBER: {
-      assert(spv::Op::OpExtInst == opcode);
+      assert(spvIsExtendedInstruction(opcode));
       assert(inst->ext_inst_type != SPV_EXT_INST_TYPE_NONE);
       spv_ext_inst_desc ext_inst;
       if (grammar_.lookupExtInst(inst->ext_inst_type, word, &ext_inst) ==
@@ -671,6 +671,10 @@ spv_result_t Parser::parseOperand(size_t inst_offset,
     case SPV_OPERAND_TYPE_OVERFLOW_MODES:
     case SPV_OPERAND_TYPE_PACKED_VECTOR_FORMAT:
     case SPV_OPERAND_TYPE_OPTIONAL_PACKED_VECTOR_FORMAT:
+    case SPV_OPERAND_TYPE_FPENCODING:
+    case SPV_OPERAND_TYPE_OPTIONAL_FPENCODING:
+    case SPV_OPERAND_TYPE_LOAD_CACHE_CONTROL:
+    case SPV_OPERAND_TYPE_STORE_CACHE_CONTROL:
     case SPV_OPERAND_TYPE_NAMED_MAXIMUM_NUMBER_OF_REGISTERS: {
       // A single word that is a plain enum value.
 
@@ -679,6 +683,8 @@ spv_result_t Parser::parseOperand(size_t inst_offset,
         parsed_operand.type = SPV_OPERAND_TYPE_ACCESS_QUALIFIER;
       if (type == SPV_OPERAND_TYPE_OPTIONAL_PACKED_VECTOR_FORMAT)
         parsed_operand.type = SPV_OPERAND_TYPE_PACKED_VECTOR_FORMAT;
+      if (type == SPV_OPERAND_TYPE_OPTIONAL_FPENCODING)
+        parsed_operand.type = SPV_OPERAND_TYPE_FPENCODING;
 
       spv_operand_desc entry;
       if (grammar_.lookupOperand(type, word, &entry)) {
@@ -699,7 +705,7 @@ spv_result_t Parser::parseOperand(size_t inst_offset,
                << ", if you are creating a new source language please use "
                   "value 0 "
                   "(Unknown) and when ready, add your source language to "
-                  "SPRIV-Headers";
+                  "SPIRV-Headers";
       }
       // Prepare to accept operands to this operand, if needed.
       spvPushOperandTypes(entry->operandTypes, expected_operands);

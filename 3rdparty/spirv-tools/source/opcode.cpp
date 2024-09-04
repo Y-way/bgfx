@@ -225,6 +225,7 @@ int32_t spvOpcodeIsSpecConstant(const spv::Op opcode) {
     case spv::Op::OpSpecConstantFalse:
     case spv::Op::OpSpecConstant:
     case spv::Op::OpSpecConstantComposite:
+    case spv::Op::OpSpecConstantCompositeReplicateEXT:
     case spv::Op::OpSpecConstantOp:
       return true;
     default:
@@ -238,6 +239,7 @@ int32_t spvOpcodeIsConstant(const spv::Op opcode) {
     case spv::Op::OpConstantFalse:
     case spv::Op::OpConstant:
     case spv::Op::OpConstantComposite:
+    case spv::Op::OpConstantCompositeReplicateEXT:
     case spv::Op::OpConstantSampler:
     case spv::Op::OpConstantNull:
     case spv::Op::OpConstantFunctionPointerINTEL:
@@ -245,6 +247,7 @@ int32_t spvOpcodeIsConstant(const spv::Op opcode) {
     case spv::Op::OpSpecConstantFalse:
     case spv::Op::OpSpecConstant:
     case spv::Op::OpSpecConstantComposite:
+    case spv::Op::OpSpecConstantCompositeReplicateEXT:
     case spv::Op::OpSpecConstantOp:
       return true;
     default:
@@ -273,6 +276,7 @@ int32_t spvOpcodeIsComposite(const spv::Op opcode) {
     case spv::Op::OpTypeMatrix:
     case spv::Op::OpTypeArray:
     case spv::Op::OpTypeStruct:
+    case spv::Op::OpTypeRuntimeArray:
     case spv::Op::OpTypeCooperativeMatrixNV:
     case spv::Op::OpTypeCooperativeMatrixKHR:
       return true;
@@ -284,8 +288,11 @@ int32_t spvOpcodeIsComposite(const spv::Op opcode) {
 bool spvOpcodeReturnsLogicalVariablePointer(const spv::Op opcode) {
   switch (opcode) {
     case spv::Op::OpVariable:
+    case spv::Op::OpUntypedVariableKHR:
     case spv::Op::OpAccessChain:
     case spv::Op::OpInBoundsAccessChain:
+    case spv::Op::OpUntypedAccessChainKHR:
+    case spv::Op::OpUntypedInBoundsAccessChainKHR:
     case spv::Op::OpFunctionParameter:
     case spv::Op::OpImageTexelPointer:
     case spv::Op::OpCopyObject:
@@ -293,6 +300,7 @@ bool spvOpcodeReturnsLogicalVariablePointer(const spv::Op opcode) {
     case spv::Op::OpPhi:
     case spv::Op::OpFunctionCall:
     case spv::Op::OpPtrAccessChain:
+    case spv::Op::OpUntypedPtrAccessChainKHR:
     case spv::Op::OpLoad:
     case spv::Op::OpConstantNull:
     case spv::Op::OpRawAccessChainNV:
@@ -305,8 +313,11 @@ bool spvOpcodeReturnsLogicalVariablePointer(const spv::Op opcode) {
 int32_t spvOpcodeReturnsLogicalPointer(const spv::Op opcode) {
   switch (opcode) {
     case spv::Op::OpVariable:
+    case spv::Op::OpUntypedVariableKHR:
     case spv::Op::OpAccessChain:
     case spv::Op::OpInBoundsAccessChain:
+    case spv::Op::OpUntypedAccessChainKHR:
+    case spv::Op::OpUntypedInBoundsAccessChainKHR:
     case spv::Op::OpFunctionParameter:
     case spv::Op::OpImageTexelPointer:
     case spv::Op::OpCopyObject:
@@ -348,6 +359,7 @@ int32_t spvOpcodeGeneratesType(spv::Op op) {
     // spv::Op::OpTypeAccelerationStructureNV
     case spv::Op::OpTypeRayQueryKHR:
     case spv::Op::OpTypeHitObjectNV:
+    case spv::Op::OpTypeUntypedPointerKHR:
       return true;
     default:
       // In particular, OpTypeForwardPointer does not generate a type,
@@ -717,6 +729,16 @@ bool spvOpcodeIsImageSample(const spv::Op opcode) {
   }
 }
 
+bool spvIsExtendedInstruction(const spv::Op opcode) {
+  switch (opcode) {
+    case spv::Op::OpExtInst:
+    case spv::Op::OpExtInstWithForwardRefsKHR:
+      return true;
+    default:
+      return false;
+  }
+}
+
 std::vector<uint32_t> spvOpcodeMemorySemanticsOperandIndices(spv::Op opcode) {
   switch (opcode) {
     case spv::Op::OpMemoryBarrier:
@@ -774,6 +796,19 @@ bool spvOpcodeIsBit(spv::Op opcode) {
     case spv::Op::OpNot:
     case spv::Op::OpBitReverse:
     case spv::Op::OpBitCount:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool spvOpcodeGeneratesUntypedPointer(spv::Op opcode) {
+  switch (opcode) {
+    case spv::Op::OpUntypedVariableKHR:
+    case spv::Op::OpUntypedAccessChainKHR:
+    case spv::Op::OpUntypedInBoundsAccessChainKHR:
+    case spv::Op::OpUntypedPtrAccessChainKHR:
+    case spv::Op::OpUntypedInBoundsPtrAccessChainKHR:
       return true;
     default:
       return false;

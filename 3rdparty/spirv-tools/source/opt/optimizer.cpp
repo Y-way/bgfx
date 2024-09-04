@@ -169,7 +169,8 @@ Optimizer& Optimizer::RegisterLegalizationPasses(bool preserve_interface) {
           .RegisterPass(CreateAggressiveDCEPass(preserve_interface))
           .RegisterPass(CreateRemoveUnusedInterfaceVariablesPass())
           .RegisterPass(CreateInterpolateFixupPass())
-          .RegisterPass(CreateInvocationInterlockPlacementPass());
+          .RegisterPass(CreateInvocationInterlockPlacementPass())
+          .RegisterPass(CreateOpExtInstWithForwardReferenceFixupPass());
 }
 
 Optimizer& Optimizer::RegisterLegalizationPasses() {
@@ -323,6 +324,8 @@ bool Optimizer::RegisterPassFromFlag(const std::string& flag,
     RegisterPass(CreateStripReflectInfoPass());
   } else if (pass_name == "strip-nonsemantic") {
     RegisterPass(CreateStripNonSemanticInfoPass());
+  } else if (pass_name == "fix-opextinst-opcodes") {
+    RegisterPass(CreateOpExtInstWithForwardReferenceFixupPass());
   } else if (pass_name == "set-spec-const-default-value") {
     if (pass_args.size() > 0) {
       auto spec_ids_vals =
@@ -361,6 +364,10 @@ bool Optimizer::RegisterPassFromFlag(const std::string& flag,
     RegisterPass(CreateSpreadVolatileSemanticsPass());
   } else if (pass_name == "descriptor-scalar-replacement") {
     RegisterPass(CreateDescriptorScalarReplacementPass());
+  } else if (pass_name == "descriptor-composite-scalar-replacement") {
+    RegisterPass(CreateDescriptorCompositeScalarReplacementPass());
+  } else if (pass_name == "descriptor-array-scalar-replacement") {
+    RegisterPass(CreateDescriptorArrayScalarReplacementPass());
   } else if (pass_name == "eliminate-dead-code-aggressive") {
     RegisterPass(CreateAggressiveDCEPass(preserve_interface));
   } else if (pass_name == "eliminate-insert-extract") {
@@ -1056,7 +1063,20 @@ Optimizer::PassToken CreateSpreadVolatileSemanticsPass() {
 
 Optimizer::PassToken CreateDescriptorScalarReplacementPass() {
   return MakeUnique<Optimizer::PassToken::Impl>(
-      MakeUnique<opt::DescriptorScalarReplacement>());
+      MakeUnique<opt::DescriptorScalarReplacement>(
+          /* flatten_composites= */ true, /* flatten_arrays= */ true));
+}
+
+Optimizer::PassToken CreateDescriptorCompositeScalarReplacementPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::DescriptorScalarReplacement>(
+          /* flatten_composites= */ true, /* flatten_arrays= */ false));
+}
+
+Optimizer::PassToken CreateDescriptorArrayScalarReplacementPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::DescriptorScalarReplacement>(
+          /* flatten_composites= */ false, /* flatten_arrays= */ true));
 }
 
 Optimizer::PassToken CreateWrapOpKillPass() {
@@ -1146,6 +1166,12 @@ Optimizer::PassToken CreateModifyMaximalReconvergencePass(bool add) {
   return MakeUnique<Optimizer::PassToken::Impl>(
       MakeUnique<opt::ModifyMaximalReconvergence>(add));
 }
+
+Optimizer::PassToken CreateOpExtInstWithForwardReferenceFixupPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::OpExtInstWithForwardReferenceFixupPass>());
+}
+
 }  // namespace spvtools
 
 extern "C" {

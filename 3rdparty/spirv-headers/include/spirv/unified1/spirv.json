@@ -416,7 +416,8 @@
                     "UnormInt24": 15,
                     "UnormInt101010_2": 16,
                     "UnsignedIntRaw10EXT": 19,
-                    "UnsignedIntRaw12EXT": 20
+                    "UnsignedIntRaw12EXT": 20,
+                    "UnormInt2_101010EXT": 21
                 }
             },
             {
@@ -1022,6 +1023,7 @@
                     "TileImageColorReadAccessEXT": 4166,
                     "TileImageDepthReadAccessEXT": 4167,
                     "TileImageStencilReadAccessEXT": 4168,
+                    "CooperativeMatrixLayoutsARM": 4201,
                     "FragmentShadingRateKHR": 4422,
                     "SubgroupBallotKHR": 4423,
                     "DrawParameters": 4427,
@@ -1051,6 +1053,7 @@
                     "RoundingModeRTZ": 4468,
                     "RayQueryProvisionalKHR": 4471,
                     "RayQueryKHR": 4472,
+                    "UntypedPointersKHR": 4473,
                     "RayTraversalPrimitiveCullingKHR": 4478,
                     "RayTracingKHR": 4479,
                     "TextureSampleWeightedQCOM": 4484,
@@ -1185,6 +1188,7 @@
                     "DotProductKHR": 6019,
                     "RayCullMaskKHR": 6020,
                     "CooperativeMatrixKHR": 6022,
+                    "ReplicatedCompositesEXT": 6024,
                     "BitInstructions": 6025,
                     "GroupNonUniformRotateKHR": 6026,
                     "FloatControls2": 6029,
@@ -1203,6 +1207,7 @@
                     "FPGAArgumentInterfacesINTEL": 6174,
                     "GlobalVariableHostAccessINTEL": 6187,
                     "GlobalVariableFPGADecorationsINTEL": 6189,
+                    "SubgroupBufferPrefetchINTEL": 6220,
                     "GroupUniformArithmeticKHR": 6400,
                     "MaskedGatherScatterINTEL": 6427,
                     "CacheControlsINTEL": 6441,
@@ -1337,7 +1342,9 @@
                 "Values":
                 {
                     "RowMajorKHR": 0,
-                    "ColumnMajorKHR": 1
+                    "ColumnMajorKHR": 1,
+                    "RowBlockedInterleavedARM": 4202,
+                    "ColumnBlockedInterleavedARM": 4203
                 }
             },
             {
@@ -1408,6 +1415,13 @@
                 {
                     "RobustnessPerComponentNV": 0,
                     "RobustnessPerElementNV": 1
+                }
+            },
+            {
+                "Name": "FPEncoding",
+                "Type": "Value",
+                "Values":
+                {
                 }
             },
             {
@@ -1763,13 +1777,22 @@
                     "OpDepthAttachmentReadEXT": 4161,
                     "OpStencilAttachmentReadEXT": 4162,
                     "OpTerminateInvocation": 4416,
+                    "OpTypeUntypedPointerKHR": 4417,
+                    "OpUntypedVariableKHR": 4418,
+                    "OpUntypedAccessChainKHR": 4419,
+                    "OpUntypedInBoundsAccessChainKHR": 4420,
                     "OpSubgroupBallotKHR": 4421,
                     "OpSubgroupFirstInvocationKHR": 4422,
+                    "OpUntypedPtrAccessChainKHR": 4423,
+                    "OpUntypedInBoundsPtrAccessChainKHR": 4424,
+                    "OpUntypedArrayLengthKHR": 4425,
+                    "OpUntypedPrefetchKHR": 4426,
                     "OpSubgroupAllKHR": 4428,
                     "OpSubgroupAnyKHR": 4429,
                     "OpSubgroupAllEqualKHR": 4430,
                     "OpGroupNonUniformRotateKHR": 4431,
                     "OpSubgroupReadInvocationKHR": 4432,
+                    "OpExtInstWithForwardRefsKHR": 4433,
                     "OpTraceRayKHR": 4445,
                     "OpExecuteCallableKHR": 4446,
                     "OpConvertUToAccelerationStructureKHR": 4447,
@@ -1792,6 +1815,9 @@
                     "OpCooperativeMatrixStoreKHR": 4458,
                     "OpCooperativeMatrixMulAddKHR": 4459,
                     "OpCooperativeMatrixLengthKHR": 4460,
+                    "OpConstantCompositeReplicateEXT": 4461,
+                    "OpSpecConstantCompositeReplicateEXT": 4462,
+                    "OpCompositeConstructReplicateEXT": 4463,
                     "OpTypeRayQueryKHR": 4472,
                     "OpRayQueryInitializeKHR": 4473,
                     "OpRayQueryTerminateKHR": 4474,
@@ -2138,6 +2164,7 @@
                     "OpConvertBF16ToFINTEL": 6117,
                     "OpControlBarrierArriveINTEL": 6142,
                     "OpControlBarrierWaitINTEL": 6143,
+                    "OpSubgroupBlockPrefetchINTEL": 6221,
                     "OpGroupIMulKHR": 6401,
                     "OpGroupFMulKHR": 6402,
                     "OpGroupBitwiseAndKHR": 6403,

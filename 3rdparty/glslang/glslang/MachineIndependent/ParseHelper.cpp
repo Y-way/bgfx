@@ -4,6 +4,7 @@
 // Copyright (C) 2015-2018 Google, Inc.
 // Copyright (C) 2017, 2019 ARM Limited.
 // Modifications Copyright (C) 2020 Advanced Micro Devices, Inc. All rights reserved.
+// Modifications Copyright (C) 2024 Ravi Prakash Singh.
 //
 // All rights reserved.
 //
@@ -41,7 +42,6 @@
 #include "Initialize.h"
 #include "Scan.h"
 
-#include "../OSDependent/osinclude.h"
 #include <algorithm>
 
 #include "preprocessor/PpContext.h"
@@ -399,6 +399,10 @@ void TParseContext::handlePragma(const TSourceLoc& loc, const TVector<TString>& 
         if (spvVersion.spv < glslang::EShTargetSpv_1_3)
             error(loc, "requires SPIR-V 1.3", "#pragma use_variable_pointers", "");
         intermediate.setUseVariablePointers();
+    } else if (spvVersion.spv > 0 && tokens[0].compare("use_replicated_composites") == 0) {
+        if (tokens.size() != 1)
+            error(loc, "extra tokens", "#pragma", "");
+        intermediate.setReplicatedComposites();
     } else if (tokens[0].compare("once") == 0) {
         warn(loc, "not implemented", "#pragma once", "");
     } else if (tokens[0].compare("glslang_binary_double_output") == 0) {
@@ -3613,6 +3617,19 @@ bool TParseContext::constructorError(const TSourceLoc& loc, TIntermNode* node, T
                 makeSpecConst = ! intArgument && !type.isArray();
                 break;
 
+            case EOpConstructCooperativeMatrixNV:
+            case EOpConstructCooperativeMatrixKHR:
+            case EOpConstructStruct:
+                {
+                    const char *specConstantCompositeExt[] = { E_GL_EXT_spec_constant_composites };
+                    if (checkExtensionsRequested(loc, 1, specConstantCompositeExt, "spec constant aggregate constructor")) {
+                        makeSpecConst = true;
+                    } else {
+                        makeSpecConst = false;
+                    }
+                }
+                break;
+
             default:
                 // anything else wasn't white-listed in the spec as a conversion
                 makeSpecConst = false;
@@ -3916,6 +3933,18 @@ void TParseContext::accStructCheck(const TSourceLoc& loc, const TType& type, con
         error(loc, "accelerationStructureNV can only be used in uniform variables or function parameters:",
             type.getBasicTypeString().c_str(), identifier.c_str());
 
+}
+
+void TParseContext::hitObjectNVCheck(const TSourceLoc & loc, const TType & type, const TString & identifier)
+{
+    if (type.getBasicType() == EbtStruct && containsFieldWithBasicType(type, EbtHitObjectNV)) {
+        error(loc, "struct is not allowed to contain hitObjectNV:", type.getTypeName().c_str(), identifier.c_str());
+    } else if (type.getBasicType() == EbtHitObjectNV) {
+        TStorageQualifier qualifier = type.getQualifier().storage;
+        if (qualifier != EvqGlobal && qualifier != EvqTemporary) {
+            error(loc, "hitObjectNV can only be declared in global or function scope with no storage qualifier:", "hitObjectNV", identifier.c_str());
+        }
+    }
 }
 
 void TParseContext::transparentOpaqueCheck(const TSourceLoc& loc, const TType& type, const TString& identifier)
@@ -7369,7 +7398,7 @@ TIntermTyped* TParseContext::vkRelaxedRemapFunctionCall(const TSourceLoc& loc, T
         }
     } else if (function->getName() == "atomicCounter") {
         // change atomicCounter into a direct read of the variable
-        if (arguments->getAsTyped()) {
+        if (arguments && arguments->getAsTyped()) {
             result = arguments->getAsTyped();
         }
     }
@@ -7857,6 +7886,7 @@ TIntermNode* TParseContext::declareVariable(const TSourceLoc& loc, TString& iden
     transparentOpaqueCheck(loc, type, identifier);
     atomicUintCheck(loc, type, identifier);
     accStructCheck(loc, type, identifier);
+    hitObjectNVCheck(loc, type, identifier);
     checkAndResizeMeshViewDim(loc, type, /*isBlockMember*/ false);
     if (type.getQualifier().storage == EvqConst && type.containsReference()) {
         error(loc, "variables with reference type can't have qualifier 'const'", "qualifier", "");
@@ -8355,6 +8385,11 @@ TIntermTyped* TParseContext::addConstructor(const TSourceLoc& loc, TIntermNode* 
 
     int paramCount = 0;  // keeps track of the constructor parameter number being checked
 
+    // We don't know "top down" whether type is a specialization constant,
+    // but a const becomes a specialization constant if any of its children are.
+    bool hasSpecConst = false;
+    bool isConstConstructor = true;
+
     // for each parameter to the constructor call, check to see if the right type is passed or convert them
     // to the right type if possible (and allowed).
     // for structure constructors, just check if the right type is passed, no conversion is allowed.
@@ -8367,13 +8402,24 @@ TIntermTyped* TParseContext::addConstructor(const TSourceLoc& loc, TIntermNode* 
         else
             newNode = constructBuiltIn(type, op, (*p)->getAsTyped(), node->getLoc(), true);
 
-        if (newNode)
+        if (newNode) {
             *p = newNode;
-        else
+            if (!newNode->getType().getQualifier().isConstant())
+                isConstConstructor = false;
+            if (newNode->getType().getQualifier().isSpecConstant())
+                hasSpecConst = true;
+        } else
             return nullptr;
     }
 
-    TIntermTyped *ret_node = intermediate.setAggregateOperator(aggrNode, op, type, loc);
+    TIntermTyped* ret_node = intermediate.setAggregateOperator(aggrNode, op, type, loc);
+
+    const char *specConstantCompositeExt[] = { E_GL_EXT_spec_constant_composites };
+    if (checkExtensionsRequested(loc, 1, specConstantCompositeExt, "spec constant aggregate constructor")) {
+        if (isConstConstructor && hasSpecConst) {
+            ret_node->getWritableType().getQualifier().makeSpecConstant();
+        }
+    }
 
     TIntermAggregate *agg_node = ret_node->getAsAggregate();
     if (agg_node && (agg_node->isVector() || agg_node->isArray() || agg_node->isMatrix()))
@@ -8505,9 +8551,10 @@ TIntermTyped* TParseContext::constructBuiltIn(const TType& type, TOperator op, T
     case EOpConstructF16Mat4x4:
     case EOpConstructFloat16:
         basicOp = EOpConstructFloat16;
-        // 8/16-bit storage extensions don't support constructing composites of 8/16-bit types,
+        // 8/16-bit storage extensions don't support direct constructing composites of 8/16-bit types,
         // so construct a 32-bit type and convert
-        if (!intermediate.getArithemeticFloat16Enabled()) {
+        // and do not generate any conversion if it is an identity conversion, i.e. float16_t(<float16_t> var)
+        if (!intermediate.getArithemeticFloat16Enabled() && (node->getBasicType() != EbtFloat16)) {
             TType tempType(EbtFloat, EvqTemporary, type.getVectorSize());
             newNode = node;
             if (tempType != newNode->getType()) {
@@ -8528,9 +8575,10 @@ TIntermTyped* TParseContext::constructBuiltIn(const TType& type, TOperator op, T
     case EOpConstructI8Vec4:
     case EOpConstructInt8:
         basicOp = EOpConstructInt8;
-        // 8/16-bit storage extensions don't support constructing composites of 8/16-bit types,
+        // 8/16-bit storage extensions don't support direct constructing composites of 8/16-bit types,
         // so construct a 32-bit type and convert
-        if (!intermediate.getArithemeticInt8Enabled()) {
+        // and do not generate any conversion if it is an identity conversion, i.e. int8_t(<int8_t> var)
+        if (!intermediate.getArithemeticInt8Enabled() && (node->getBasicType() != EbtInt8)) {
             TType tempType(EbtInt, EvqTemporary, type.getVectorSize());
             newNode = node;
             if (tempType != newNode->getType()) {
@@ -8551,9 +8599,10 @@ TIntermTyped* TParseContext::constructBuiltIn(const TType& type, TOperator op, T
     case EOpConstructU8Vec4:
     case EOpConstructUint8:
         basicOp = EOpConstructUint8;
-        // 8/16-bit storage extensions don't support constructing composites of 8/16-bit types,
+        // 8/16-bit storage extensions don't support direct constructing composites of 8/16-bit types,
         // so construct a 32-bit type and convert
-        if (!intermediate.getArithemeticInt8Enabled()) {
+        // and do not generate any conversion if it is an identity conversion, i.e. uint8_t(<uint8_t> var)
+        if (!intermediate.getArithemeticInt8Enabled() && (node->getBasicType() != EbtUint8)) {
             TType tempType(EbtUint, EvqTemporary, type.getVectorSize());
             newNode = node;
             if (tempType != newNode->getType()) {
@@ -8574,9 +8623,10 @@ TIntermTyped* TParseContext::constructBuiltIn(const TType& type, TOperator op, T
     case EOpConstructI16Vec4:
     case EOpConstructInt16:
         basicOp = EOpConstructInt16;
-        // 8/16-bit storage extensions don't support constructing composites of 8/16-bit types,
+        // 8/16-bit storage extensions don't support direct constructing composites of 8/16-bit types,
         // so construct a 32-bit type and convert
-        if (!intermediate.getArithemeticInt16Enabled()) {
+        // and do not generate any conversion if it is an identity conversion, i.e. int16_t(<int16_t> var)
+        if (!intermediate.getArithemeticInt16Enabled() && (node->getBasicType() != EbtInt16)) {
             TType tempType(EbtInt, EvqTemporary, type.getVectorSize());
             newNode = node;
             if (tempType != newNode->getType()) {
@@ -8597,9 +8647,10 @@ TIntermTyped* TParseContext::constructBuiltIn(const TType& type, TOperator op, T
     case EOpConstructU16Vec4:
     case EOpConstructUint16:
         basicOp = EOpConstructUint16;
-        // 8/16-bit storage extensions don't support constructing composites of 8/16-bit types,
+        // 8/16-bit storage extensions don't support direct constructing composites of 8/16-bit types,
         // so construct a 32-bit type and convert
-        if (!intermediate.getArithemeticInt16Enabled()) {
+        // and do not generate any conversion if it is an identity conversion, i.e. uint16_t(<uint16_t> var)
+        if (!intermediate.getArithemeticInt16Enabled() && (node->getBasicType() != EbtUint16)) {
             TType tempType(EbtUint, EvqTemporary, type.getVectorSize());
             newNode = node;
             if (tempType != newNode->getType()) {

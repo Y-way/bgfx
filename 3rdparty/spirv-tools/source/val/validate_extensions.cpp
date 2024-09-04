@@ -147,7 +147,7 @@ bool DoesDebugInfoOperandMatchExpectation(
     const Instruction* inst, uint32_t word_index) {
   if (inst->words().size() <= word_index) return false;
   auto* debug_inst = _.FindDef(inst->word(word_index));
-  if (debug_inst->opcode() != spv::Op::OpExtInst ||
+  if (!spvIsExtendedInstruction(debug_inst->opcode()) ||
       (debug_inst->ext_inst_type() != SPV_EXT_INST_TYPE_OPENCL_DEBUGINFO_100 &&
        debug_inst->ext_inst_type() !=
            SPV_EXT_INST_TYPE_NONSEMANTIC_SHADER_DEBUGINFO_100) ||
@@ -165,7 +165,7 @@ bool DoesDebugInfoOperandMatchExpectation(
     const Instruction* inst, uint32_t word_index) {
   if (inst->words().size() <= word_index) return false;
   auto* debug_inst = _.FindDef(inst->word(word_index));
-  if (debug_inst->opcode() != spv::Op::OpExtInst ||
+  if (!spvIsExtendedInstruction(debug_inst->opcode()) ||
       (debug_inst->ext_inst_type() !=
        SPV_EXT_INST_TYPE_NONSEMANTIC_SHADER_DEBUGINFO_100) ||
       !expectation(
@@ -409,7 +409,7 @@ spv_result_t ValidateClspvReflectionArgumentInfo(ValidationState_t& _,
 spv_result_t ValidateKernelDecl(ValidationState_t& _, const Instruction* inst) {
   const auto decl_id = inst->GetOperandAs<uint32_t>(4);
   const auto decl = _.FindDef(decl_id);
-  if (!decl || decl->opcode() != spv::Op::OpExtInst) {
+  if (!decl || !spvIsExtendedInstruction(decl->opcode())) {
     return _.diag(SPV_ERROR_INVALID_ID, inst)
            << "Kernel must be a Kernel extended instruction";
   }
@@ -432,7 +432,7 @@ spv_result_t ValidateKernelDecl(ValidationState_t& _, const Instruction* inst) {
 spv_result_t ValidateArgInfo(ValidationState_t& _, const Instruction* inst,
                              uint32_t info_index) {
   auto info = _.FindDef(inst->GetOperandAs<uint32_t>(info_index));
-  if (!info || info->opcode() != spv::Op::OpExtInst) {
+  if (!info || !spvIsExtendedInstruction(info->opcode())) {
     return _.diag(SPV_ERROR_INVALID_ID, inst)
            << "ArgInfo must be an ArgumentInfo extended instruction";
   }
@@ -2962,11 +2962,37 @@ spv_result_t ValidateExtInst(ValidationState_t& _, const Instruction* inst) {
                  << "expected operand Format to be a pointer";
         }
 
-        if (format_storage_class != spv::StorageClass::UniformConstant) {
-          return _.diag(SPV_ERROR_INVALID_DATA, inst)
-                 << ext_inst_name() << ": "
-                 << "expected Format storage class to be UniformConstant";
+        if (_.HasExtension(
+                Extension::kSPV_EXT_relaxed_printf_string_address_space)) {
+          if (format_storage_class != spv::StorageClass::UniformConstant &&
+              // Extension SPV_EXT_relaxed_printf_string_address_space allows
+              // format strings in Global, Local, Private and Generic address
+              // spaces
+
+              // Global
+              format_storage_class != spv::StorageClass::CrossWorkgroup &&
+              // Local
+              format_storage_class != spv::StorageClass::Workgroup &&
+              // Private
+              format_storage_class != spv::StorageClass::Function &&
+              // Generic
+              format_storage_class != spv::StorageClass::Generic) {
+            return _.diag(SPV_ERROR_INVALID_DATA, inst)
+                   << ext_inst_name() << ": "
+                   << "expected Format storage class to be UniformConstant, "
+                      "Crossworkgroup, Workgroup, Function, or Generic";
+          }
+        } else {
+          if (format_storage_class != spv::StorageClass::UniformConstant) {
+            return _.diag(SPV_ERROR_INVALID_DATA, inst)
+                   << ext_inst_name() << ": "
+                   << "expected Format storage class to be UniformConstant";
+          }
         }
+
+        // If pointer points to an array, get the type of an element
+        if (_.IsIntArrayType(format_data_type))
+          format_data_type = _.GetComponentType(format_data_type);
 
         if (!_.IsIntScalarType(format_data_type) ||
             _.GetBitWidth(format_data_type) != 8) {
@@ -3706,7 +3732,7 @@ spv_result_t ExtensionPass(ValidationState_t& _, const Instruction* inst) {
   const spv::Op opcode = inst->opcode();
   if (opcode == spv::Op::OpExtension) return ValidateExtension(_, inst);
   if (opcode == spv::Op::OpExtInstImport) return ValidateExtInstImport(_, inst);
-  if (opcode == spv::Op::OpExtInst) return ValidateExtInst(_, inst);
+  if (spvIsExtendedInstruction(opcode)) return ValidateExtInst(_, inst);
 
   return SPV_SUCCESS;
 }
