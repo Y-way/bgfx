@@ -47,7 +47,7 @@ namespace bgfx { namespace mtl
 		{ MTLPrimitiveTypeLineStrip,     2, 1, 1 },
 		{ MTLPrimitiveTypePoint,         1, 1, 0 },
 	};
-	BX_STATIC_ASSERT(Topology::Count == BX_COUNTOF(s_primInfo) );
+	static_assert(Topology::Count == BX_COUNTOF(s_primInfo) );
 
 	static const char* s_attribName[] =
 	{
@@ -70,7 +70,7 @@ namespace bgfx { namespace mtl
 		"a_texcoord6",
 		"a_texcoord7",
 	};
-	BX_STATIC_ASSERT(Attrib::Count == BX_COUNTOF(s_attribName) );
+	static_assert(Attrib::Count == BX_COUNTOF(s_attribName) );
 
 	static const char* s_instanceDataName[] =
 	{
@@ -80,7 +80,7 @@ namespace bgfx { namespace mtl
 		"i_data3",
 		"i_data4",
 	};
-	BX_STATIC_ASSERT(BGFX_CONFIG_MAX_INSTANCE_DATA_COUNT == BX_COUNTOF(s_instanceDataName) );
+	static_assert(BGFX_CONFIG_MAX_INSTANCE_DATA_COUNT == BX_COUNTOF(s_instanceDataName) );
 
 	static const MTLVertexFormat s_attribType[][4][2] = //type, count, normalized
 	{
@@ -125,7 +125,7 @@ namespace bgfx { namespace mtl
 			{ MTLVertexFormatFloat4, MTLVertexFormatFloat4 },
 		},
 	};
-	BX_STATIC_ASSERT(AttribType::Count == BX_COUNTOF(s_attribType) );
+	static_assert(AttribType::Count == BX_COUNTOF(s_attribType) );
 
 	static const MTLCullMode s_cullMode[] =
 	{
@@ -348,7 +348,7 @@ namespace bgfx { namespace mtl
 #undef $A
 	};
 	BX_PRAGMA_DIAGNOSTIC_POP();
-	BX_STATIC_ASSERT(TextureFormat::Count == BX_COUNTOF(s_textureFormat) );
+	static_assert(TextureFormat::Count == BX_COUNTOF(s_textureFormat) );
 
 	int32_t s_msaa[] =
 	{
@@ -425,7 +425,7 @@ static const char* s_accessNames[] = {
 	"Access::Write",
 	"Access::ReadWrite",
 };
-BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames count");
+static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames count");
 
 #ifndef __IPHONE_OS_VERSION_MAX_ALLOWED
 #	define __IPHONE_OS_VERSION_MAX_ALLOWED 0
@@ -498,7 +498,11 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 			BX_UNUSED(_init);
 			BX_TRACE("Init.");
 
-#define CHECK_FEATURE_AVAILABLE(feature, ...) if (@available(__VA_ARGS__)) { feature = true; } else { feature = false; }
+#define CHECK_FEATURE_AVAILABLE(feature, ...) \
+	BX_MACRO_BLOCK_BEGIN \
+		if (@available(__VA_ARGS__)) { feature = true; } else { feature = false; } \
+		BX_TRACE("[MTL] OS feature %s: %d", (#feature) + 2, feature); \
+	BX_MACRO_BLOCK_END
 
 			CHECK_FEATURE_AVAILABLE(m_usesMTLBindings, macOS 13.0, iOS 16.0, tvOS 16.0, macCatalyst 16.0, VISION_OS_MINIMUM *);
 			CHECK_FEATURE_AVAILABLE(m_hasCPUCacheModesAndStorageModes, iOS 9.0, macOS 10.11, macCatalyst 13.1, tvOS 9.0, VISION_OS_MINIMUM *);
@@ -533,7 +537,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 				, TextureFormat::Unknown
 				, TextureFormat::UnknownDepth
 				);
-		
+
 #if BX_PLATFORM_VISIONOS
 			if (m_mainFrameBuffer.m_swapChain->m_useLayerRenderer)
 			{
@@ -923,7 +927,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 			MTL_RELEASE(m_vertexDescriptor);
 			MTL_RELEASE(m_textureDescriptor);
 			MTL_RELEASE(m_samplerDescriptor);
-		
+
 #if BX_PLATFORM_VISIONOS
 			if (m_mainFrameBuffer.m_swapChain->m_useLayerRenderer)
 			{
@@ -1077,7 +1081,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 				return cp_layer_renderer_configuration_get_color_format(layerConfiguration);
 			}
 #endif // BX_PLATFORM_VISIONOS
-			
+
 			return swapChain->m_metalLayer.pixelFormat;
 		}
 
@@ -1328,18 +1332,21 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 		{
 			BX_UNUSED(_blitter);
 		}
-	
+
 #if BX_PLATFORM_VISIONOS
-		void calculateViewPorts(MTLViewport (&viewports)[2]) {
+		void calculateViewPorts(MTLViewport (&viewports)[2])
+		{
 			const int viewCount = 2;
-			for (int i = 0; i < viewCount; i++) {
+			for (int i = 0; i < viewCount; i++)
+			{
 				cp_view_t view = cp_drawable_get_view(m_mainFrameBuffer.m_swapChain->m_layerRendererDrawable, i);
 				cp_view_texture_map_t texture_map = cp_view_get_view_texture_map(view);
 				viewports[i] = cp_view_texture_map_get_viewport(texture_map);
 			}
 		}
 
-		void setVertexAmplification(RenderCommandEncoder& _rce) {
+		void setVertexAmplification(RenderCommandEncoder& _rce)
+		{
 			MTLVertexAmplificationViewMapping mapping0;
 			MTLVertexAmplificationViewMapping mapping1;
 
@@ -1399,7 +1406,8 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 #if BX_PLATFORM_VISIONOS
 				if (m_mainFrameBuffer.m_swapChain->m_useLayerRenderer)
 				{
-					if (cp_layer_renderer_configuration_get_layout(m_mainFrameBuffer.m_swapChain->m_layerRendererConfiguration) == cp_layer_renderer_layout_layered) {
+					if (cp_layer_renderer_configuration_get_layout(m_mainFrameBuffer.m_swapChain->m_layerRendererConfiguration) == cp_layer_renderer_layout_layered)
+					{
 						MTLViewport viewports[2];
 						calculateViewPorts(viewports);
 						rce.setViewports(viewports, 2);
@@ -1411,7 +1419,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 				{
 					MTLViewport viewport = { 0.0f, 0.0f, (float)width, (float)height, 0.0f, 1.0f };
 					rce.setViewport(viewport);
-					
+
 					MTLScissorRect rc = { 0, 0, width, height };
 					rce.setScissorRect(rc);
 				}
@@ -1499,7 +1507,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 			}
 		}
 #endif // BX_PLATFORM_VISIONOS
-		
+
 		void flip() override
 		{
 			if (NULL == m_commandBuffer)
@@ -1743,7 +1751,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 					break;
 				}
 
-				UniformType::Enum type;
+				uint8_t type;
 				uint16_t loc;
 				uint16_t num;
 				uint16_t copy;
@@ -1761,7 +1769,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 					data = (const char*)m_uniforms[handle.idx];
 				}
 
-				switch ( (uint32_t)type)
+				switch (type)
 				{
 				case UniformType::Mat3:
 				case UniformType::Mat3|kUniformFragmentBit:
@@ -1983,7 +1991,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 					Texture texture = cp_drawable_get_depth_texture(swapChain->m_layerRendererDrawable, 0);
 					_renderPassDescriptor.depthAttachment.texture   = texture;
 					_renderPassDescriptor.stencilAttachment.texture = swapChain->m_backBufferStencil;
-					
+
 					cp_layer_renderer_configuration_t layerConfiguration = cp_layer_renderer_get_configuration(swapChain->m_layerRenderer);
 					cp_layer_renderer_layout layout = cp_layer_renderer_configuration_get_layout(layerConfiguration);
 					if (layout == cp_layer_renderer_layout_layered)
@@ -2221,7 +2229,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 												}
 
 												UniformType::Enum type = convertMtlType(dataType);
-												constantBuffer->writeUniformHandle( (UniformType::Enum)(type|fragmentBit), uint32_t(uniform.offset), info->m_handle, uint16_t(num) );
+												constantBuffer->writeUniformHandle(type|fragmentBit, uint32_t(uniform.offset), info->m_handle, uint16_t(num) );
 												BX_TRACE("store %s %d offset:%d", name, info->m_handle, uint32_t(uniform.offset) );
 											}
 										}
@@ -2530,7 +2538,8 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 						}
 					}
 
-					if (streamUsed) {
+					if (streamUsed)
+					{
 						vertexDesc.layouts[stream+1].stride       = layout.getStride();
 						vertexDesc.layouts[stream+1].stepFunction = MTLVertexStepFunctionPerVertex;
 					}
@@ -2574,9 +2583,12 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 						BX_PRAGMA_DIAGNOSTIC_PUSH();
 						BX_PRAGMA_DIAGNOSTIC_IGNORED_CLANG("-Wunguarded-availability-new");
 						BX_PRAGMA_DIAGNOSTIC_IGNORED_CLANG("-Wincompatible-pointer-types");
-						if (m_usesMTLBindings) {
+						if (m_usesMTLBindings)
+						{
 							processArguments(pso, reflection.vertexBindings, reflection.fragmentBindings);
-						} else {
+						}
+						else
+						{
 							processArguments(pso, reflection.vertexArguments, reflection.fragmentArguments);
 						}
 						BX_PRAGMA_DIAGNOSTIC_POP();
@@ -2630,9 +2642,12 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 				BX_PRAGMA_DIAGNOSTIC_PUSH();
 				BX_PRAGMA_DIAGNOSTIC_IGNORED_CLANG("-Wunguarded-availability-new");
 				BX_PRAGMA_DIAGNOSTIC_IGNORED_CLANG("-Wincompatible-pointer-types");
-				if (m_usesMTLBindings) {
+				if (m_usesMTLBindings)
+				{
 					processArguments(pso, reflection.bindings, NULL);
-				} else {
+				}
+				else
+				{
 					processArguments(pso, reflection.arguments, NULL);
 				}
 				BX_PRAGMA_DIAGNOSTIC_POP();
@@ -3486,11 +3501,12 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 			cp_layer_renderer_t layerRenderer = (cp_layer_renderer_t)_nwh;
 			m_layerRenderer = layerRenderer;
 			m_layerRendererConfiguration = cp_layer_renderer_get_configuration(m_layerRenderer);
-			
-			if (cp_layer_renderer_configuration_get_layout(m_layerRendererConfiguration) == cp_layer_renderer_layout_dedicated) {
+
+			if (cp_layer_renderer_configuration_get_layout(m_layerRendererConfiguration) == cp_layer_renderer_layout_dedicated)
+			{
 				BX_WARN(false, "Dedicated layer renderer layout is not supported.");
 			}
-			
+
 			retain(m_layerRendererConfiguration);
 			retain(m_layerRenderer);
 		}
@@ -3501,12 +3517,12 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 			{
 				release(m_metalLayer);
 			}
-			
+
 #if !BX_PLATFORM_VISIONOS
 			if (NULL != NSClassFromString(@"MTKView") )
 			{
 				MTKView *view = (MTKView *)_nwh;
-				
+
 				if (NULL != view
 					&&  [view isKindOfClass:NSClassFromString(@"MTKView")])
 				{
@@ -3514,7 +3530,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 				}
 			}
 #endif
-			
+
 			if (NULL != NSClassFromString(@"CAMetalLayer") )
 			{
 				if (NULL == m_metalLayer)
@@ -3527,7 +3543,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 						BX_WARN(false, "Unable to create Metal device. Please set platform data window to a CAMetalLayer");
 						return;
 					}
-					
+
 					m_metalLayer = metalLayer;
 				}
 #	elif BX_PLATFORM_OSX
@@ -3541,7 +3557,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 					else
 					{
 						NSView *contentView;
-						
+
 						if ([nvh isKindOfClass:[NSView class]])
 						{
 							contentView = (NSView*)nvh;
@@ -3556,7 +3572,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 							BX_WARN(0, "Unable to create Metal device. Please set platform data window to an NSWindow, NSView, or CAMetalLayer");
 							return;
 						}
-						
+
 						void (^setLayer)(void) = ^{
 							CALayer* layer = contentView.layer;
 							if(NULL != layer && [layer isKindOfClass:NSClassFromString(@"CAMetalLayer")])
@@ -3570,7 +3586,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 								[contentView setLayer:m_metalLayer];
 							}
 						};
-						
+
 						if ([NSThread isMainThread])
 						{
 							setLayer();
@@ -3579,7 +3595,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 						{
 							bx::Semaphore semaphore;
 							bx::Semaphore* psemaphore = &semaphore;
-							
+
 							CFRunLoopPerformBlock([[NSRunLoop mainRunLoop] getCFRunLoop],
 												  kCFRunLoopCommonModes,
 												  ^{
@@ -3592,13 +3608,13 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 				}
 #	endif // BX_PLATFORM_*
 			}
-			
+
 			if (NULL == m_metalLayer)
 			{
 				BX_WARN(NULL != s_renderMtl->m_device, "Unable to create Metal device.");
 				return;
 			}
-			
+
 			m_metalLayer.device      = s_renderMtl->m_device;
 			m_metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
 			m_metalLayer.magnificationFilter = kCAFilterNearest;
@@ -3660,6 +3676,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 		desc.mipmapLevelCount = 1;
 		desc.sampleCount = sampleCount;
 		desc.arrayLength = 1;
+		desc.swizzle = { MTLTextureSwizzleRed, MTLTextureSwizzleGreen, MTLTextureSwizzleBlue, MTLTextureSwizzleAlpha };
 
 		if (s_renderMtl->m_hasCPUCacheModesAndStorageModes)
 		{
@@ -3750,11 +3767,11 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 				{
 					cp_frame_timing_t timing = cp_frame_predict_timing(m_frame);
 					if (timing == nullptr) { return nullptr; }
-					
+
 					cp_frame_start_update(m_frame);
-					
+
 					cp_frame_end_update(m_frame);
-					
+
 					cp_time_wait_until(cp_frame_timing_get_optimal_input_time(timing));
 					cp_frame_start_submission(m_frame);
 					m_layerRendererDrawable = cp_frame_query_drawable(m_frame);
@@ -3780,7 +3797,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 			if (m_drawable != NULL)
 			{
 				m_drawableTexture = m_drawable.texture;
-				retain(m_drawable); // keep alive to be useable at 'flip'
+				retain(m_drawable); // keep alive to be usable at 'flip'
 				retain(m_drawableTexture);
 			}
 			else
@@ -4616,7 +4633,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 							vp.znear   = 0.0f;
 							vp.zfar    = 1.0f;
 							rce.setViewport(vp);
-							
+
 							MTLScissorRect sciRect = {
 								viewState.m_rect.m_x,
 								viewState.m_rect.m_y,
@@ -4625,7 +4642,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 							};
 							rce.setScissorRect(sciRect);
 						}
-						
+
 						if (BGFX_CLEAR_NONE != (clr.m_flags & BGFX_CLEAR_MASK)
 							&& !clearWithRenderPass)
 						{
@@ -5129,7 +5146,7 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 										BGFX_FATAL(
 											  false
 											, Fatal::DebugCheck
-											, "Failed to set image with access: %s, format:%s is not supoort"
+											, "Failed to set image with access: %s, format:%s is not supported"
 											, s_accessNames[bind.m_access]
 											, bimg::getName(bimg::TextureFormat::Enum(bind.m_format) )
 											);
@@ -5432,7 +5449,6 @@ BX_STATIC_ASSERT(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNa
 				}
 
 				tvm.printf(10, pos++, 0x8b, "      Indices: %7d ", statsNumIndices);
-//				tvm.printf(10, pos++, 0x8b, " Uniform size: %7d, Max: %7d ", _render->m_uniformEnd, _render->m_uniformMax);
 				tvm.printf(10, pos++, 0x8b, "     DVB size: %7d ", _render->m_vboffset);
 				tvm.printf(10, pos++, 0x8b, "     DIB size: %7d ", _render->m_iboffset);
 
