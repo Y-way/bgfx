@@ -60,7 +60,7 @@ Supported compilers:
 
  * Clang 11 and above
  * GCC 11 and above
- * VS2019 and above
+ * VS2022 and above
  * Apple clang 12 and above
 
 Languages:
@@ -670,6 +670,13 @@ It features a huge game world to explore (~256km2), land, air, sea vehicles to d
 <a href="http://www.youtube.com/watch?feature=player_embedded&v=LHmQBo_7f84"
 target="_blank"><img src="http://img.youtube.com/vi/LHmQBo_7f84/0.jpg"
 alt="Off The Road 2"
+width="640" height="480" border="0" /></a>
+
+## Minecraft Vibrant Visuals
+
+<a href="http://www.youtube.com/watch?feature=player_embedded&v=5zcZJcXRdw0"
+target="_blank"><img src="http://img.youtube.com/vi/5zcZJcXRdw0/0.jpg"
+alt="Minecraft Vibrant Visuals"
 width="640" height="480" border="0" /></a>
 
 [License (BSD 2-clause)](https://bkaradzic.github.io/bgfx/license.html)

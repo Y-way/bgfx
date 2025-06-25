@@ -404,8 +404,7 @@ bool IsAlignedTo(uint32_t offset, uint32_t alignment) {
 // or row major-ness.
 spv_result_t checkLayout(uint32_t struct_id, const char* storage_class_str,
                          const char* decoration_str, bool blockRules,
-                         bool scalar_block_layout,
-                         uint32_t incoming_offset,
+                         bool scalar_block_layout, uint32_t incoming_offset,
                          MemberConstraints& constraints,
                          ValidationState_t& vstate) {
   if (vstate.options()->skip_block_layout) return SPV_SUCCESS;
@@ -509,6 +508,15 @@ spv_result_t checkLayout(uint32_t struct_id, const char* storage_class_str,
     // Check offset.
     if (offset == 0xffffffff)
       return fail(memberIdx) << "is missing an Offset decoration";
+
+    if (opcode == spv::Op::OpTypeRuntimeArray &&
+        ordered_member_idx != member_offsets.size() - 1) {
+      return vstate.diag(SPV_ERROR_INVALID_ID, vstate.FindDef(struct_id))
+             << vstate.VkErrorID(4680) << "Structure id " << struct_id
+             << " has a runtime array at offset " << offset
+             << ", but other members at larger offsets";
+    }
+
     if (!scalar_block_layout && relaxed_block_layout &&
         opcode == spv::Op::OpTypeVector) {
       // In relaxed block layout, the vector offset must be aligned to the
@@ -1014,7 +1022,7 @@ spv_result_t CheckDecorationsOfEntryPoints(ValidationState_t& vstate) {
         }
         if (num_workgroup_variables_with_block > 1 &&
             num_workgroup_variables_with_block !=
-            num_workgroup_variables_with_aliased) {
+                num_workgroup_variables_with_aliased) {
           return vstate.diag(SPV_ERROR_INVALID_BINARY,
                              vstate.FindDef(entry_point))
                  << "When declaring WorkgroupMemoryExplicitLayoutKHR, "
@@ -1237,10 +1245,10 @@ spv_result_t CheckDecorationsOfBuffers(ValidationState_t& vstate) {
         }
         // Prepare for messages
         const char* sc_str =
-            uniform ? "Uniform"
-                    : (push_constant ? "PushConstant"
-                                     : (workgroup ? "Workgroup"
-                                                  : "StorageBuffer"));
+            uniform
+                ? "Uniform"
+                : (push_constant ? "PushConstant"
+                                 : (workgroup ? "Workgroup" : "StorageBuffer"));
 
         if (spvIsVulkanEnv(vstate.context()->target_env)) {
           const bool block = hasDecoration(id, spv::Decoration::Block, vstate);
@@ -1756,6 +1764,7 @@ spv_result_t CheckNonWritableDecoration(ValidationState_t& vstate,
          var_storage_class == spv::StorageClass::Private) &&
         vstate.features().nonwritable_var_in_function_or_private) {
       // New permitted feature in SPIR-V 1.4.
+    } else if (var_storage_class == spv::StorageClass::TileAttachmentQCOM) {
     } else if (
         // It may point to a UBO, SSBO, storage image, or raw access chain.
         vstate.IsPointerToUniformBlock(type_id) ||
@@ -2021,7 +2030,8 @@ spv_result_t CheckRelaxPrecisionDecoration(ValidationState_t& vstate,
   {                                             \
     spv_result_t e##LINE = (X);                 \
     if (e##LINE != SPV_SUCCESS) return e##LINE; \
-  } static_assert(true, "require extra semicolon")
+  }                                             \
+  static_assert(true, "require extra semicolon")
 #define PASS_OR_BAIL(X) PASS_OR_BAIL_AT_LINE(X, __LINE__)
 
 // Check rules for decorations where we start from the decoration rather
@@ -2260,7 +2270,7 @@ spv_result_t CheckInvalidVulkanExplicitLayout(ValidationState_t& vstate) {
           // For untyped pointers, check the type of the data operand for an
           // invalid layout.
           const auto sc = ptr_type->GetOperandAs<spv::StorageClass>(1);
-          const auto data_type_id = vstate.GetOperandTypeId(&inst, 2);
+          const auto data_type_id = vstate.GetOperandTypeId(&inst, 1);
           if (!AllowsLayout(vstate, sc) &&
               UsesExplicitLayout(vstate, data_type_id, cache)) {
             fail_id = inst.GetOperandAs<uint32_t>(2);
@@ -2273,6 +2283,7 @@ spv_result_t CheckInvalidVulkanExplicitLayout(ValidationState_t& vstate) {
     }
     if (fail_id != 0) {
       return vstate.diag(SPV_ERROR_INVALID_ID, &inst)
+             << vstate.VkErrorID(10684)
              << "Invalid explicit layout decorations on type for operand "
              << vstate.getIdName(fail_id);
     }
