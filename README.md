@@ -67,7 +67,8 @@ Languages:
 
  * [C/C++ API documentation](https://bkaradzic.github.io/bgfx/bgfx.html)
  * [Beef API bindings](https://github.com/bkaradzic/bgfx/tree/master/bindings/bf)
- * [C# language API bindings #1](https://github.com/bkaradzic/bgfx/tree/master/bindings/cs)
+ * [C# language API bindings](https://github.com/bkaradzic/bgfx/tree/master/bindings/cs)
+ * [C3 language API bindings](https://github.com/bkaradzic/bgfx/tree/master/bindings/c3)
  * [D language API bindings](https://github.com/BindBC/bindbc-bgfx)
  * [Go language API bindings](https://github.com/james4k/go-bgfx)
  * [Haskell language API bindings](https://github.com/haskell-game/bgfx)
@@ -393,7 +394,7 @@ management and design sandbox game for railways you build in the real world.
 
 ## Minecraft
 
-https://www.minecraft.net/zh-hant/attribution/
+https://www.minecraft.net/en-us/attribution
 
 ![Minecraft screenshot](https://user-images.githubusercontent.com/814772/79185288-57050000-7dcb-11ea-87b4-2126fcd1545b.jpg)
 

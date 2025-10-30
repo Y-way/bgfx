@@ -2083,8 +2083,9 @@ public static class bgfx
 			public uint32 maxOcclusionQueries;
 			public uint32 maxEncoders;
 			public uint32 minResourceCbSize;
-			public uint32 transientVbSize;
-			public uint32 transientIbSize;
+			public uint32 maxTransientVbSize;
+			public uint32 maxTansientIbSize;
+			public uint32 minUniformBufferSize;
 		}
 	
 		public RendererType rendererType;
@@ -2120,7 +2121,8 @@ public static class bgfx
 	[CRepr]
 	public struct Resolution
 	{
-		public TextureFormat format;
+		public TextureFormat formatColor;
+		public TextureFormat formatDepthStencil;
 		public uint32 width;
 		public uint32 height;
 		public uint32 reset;
@@ -2137,8 +2139,9 @@ public static class bgfx
 		{
 			public uint16 maxEncoders;
 			public uint32 minResourceCbSize;
-			public uint32 transientVbSize;
-			public uint32 transientIbSize;
+			public uint32 maxTransientVbSize;
+			public uint32 maxTransientIbSize;
+			public uint32 minUniformBufferSize;
 		}
 	
 		public RendererType type;
@@ -4197,9 +4200,10 @@ public static class bgfx
 	///
 	/// <param name="_handle">Texture handle.</param>
 	/// <param name="_ptr">Native API pointer to texture.</param>
+	/// <param name="_layerIndex">Layer index for texture arrays (only implemented for D3D11).</param>
 	///
 	[LinkName("bgfx_override_internal_texture_ptr")]
-	public static extern void* override_internal_texture_ptr(TextureHandle _handle, void* _ptr);
+	public static extern void* override_internal_texture_ptr(TextureHandle _handle, void* _ptr, uint16 _layerIndex);
 	
 	/// <summary>
 	/// Override internal texture by creating new texture. Previously created

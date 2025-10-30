@@ -538,8 +538,9 @@ typedef struct bgfx_caps_limits_s
     uint32_t             maxOcclusionQueries; /** Maximum number of occlusion query handles. */
     uint32_t             maxEncoders;        /** Maximum number of encoder threads.       */
     uint32_t             minResourceCbSize;  /** Minimum resource command buffer size.    */
-    uint32_t             transientVbSize;    /** Maximum transient vertex buffer size.    */
-    uint32_t             transientIbSize;    /** Maximum transient index buffer size.     */
+    uint32_t             maxTransientVbSize; /** Maximum transient vertex buffer size.    */
+    uint32_t             maxTansientIbSize;  /** Maximum transient index buffer size.     */
+    uint32_t             minUniformBufferSize; /** Mimimum uniform buffer size.             */
 
 } bgfx_caps_limits_t;
 
@@ -645,7 +646,8 @@ typedef struct bgfx_platform_data_s
  */
 typedef struct bgfx_resolution_s
 {
-    bgfx_texture_format_t format;            /** Backbuffer format.                       */
+    bgfx_texture_format_t formatColor;       /** Backbuffer color format.                 */
+    bgfx_texture_format_t formatDepthStencil; /** Backbuffer depth/stencil format.         */
     uint32_t             width;              /** Backbuffer width.                        */
     uint32_t             height;             /** Backbuffer height.                       */
     uint32_t             reset;              /** Reset parameters.                        */
@@ -663,8 +665,9 @@ typedef struct bgfx_init_limits_s
 {
     uint16_t             maxEncoders;        /** Maximum number of encoder threads.       */
     uint32_t             minResourceCbSize;  /** Minimum resource command buffer size.    */
-    uint32_t             transientVbSize;    /** Maximum transient vertex buffer size.    */
-    uint32_t             transientIbSize;    /** Maximum transient index buffer size.     */
+    uint32_t             maxTransientVbSize; /** Maximum transient vertex buffer size.    */
+    uint32_t             maxTransientIbSize; /** Maximum transient index buffer size.     */
+    uint32_t             minUniformBufferSize; /** Mimimum uniform buffer size.             */
 
 } bgfx_init_limits_t;
 
@@ -2952,12 +2955,13 @@ BGFX_C_API const bgfx_internal_data_t* bgfx_get_internal_data(void);
  *
  * @param[in] _handle Texture handle.
  * @param[in] _ptr Native API pointer to texture.
+ * @param[in] _layerIndex Layer index for texture arrays (only implemented for D3D11).
  *
  * @returns Native API pointer to texture. If result is 0, texture is not created
  *  yet from the main thread.
  *
  */
-BGFX_C_API uintptr_t bgfx_override_internal_texture_ptr(bgfx_texture_handle_t _handle, uintptr_t _ptr);
+BGFX_C_API uintptr_t bgfx_override_internal_texture_ptr(bgfx_texture_handle_t _handle, uintptr_t _ptr, uint16_t _layerIndex);
 
 /**
  * Override internal texture by creating new texture. Previously created
@@ -3843,7 +3847,7 @@ struct bgfx_interface_vtbl
     bgfx_render_frame_t (*render_frame)(int32_t _msecs);
     void (*set_platform_data)(const bgfx_platform_data_t * _data);
     const bgfx_internal_data_t* (*get_internal_data)(void);
-    uintptr_t (*override_internal_texture_ptr)(bgfx_texture_handle_t _handle, uintptr_t _ptr);
+    uintptr_t (*override_internal_texture_ptr)(bgfx_texture_handle_t _handle, uintptr_t _ptr, uint16_t _layerIndex);
     uintptr_t (*override_internal_texture)(bgfx_texture_handle_t _handle, uint16_t _width, uint16_t _height, uint8_t _numMips, bgfx_texture_format_t _format, uint64_t _flags);
     void (*set_marker)(const char* _name, int32_t _len);
     void (*set_state)(uint64_t _state, uint32_t _rgba);

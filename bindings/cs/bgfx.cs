@@ -2064,8 +2064,9 @@ public static partial class bgfx
 			public uint maxOcclusionQueries;
 			public uint maxEncoders;
 			public uint minResourceCbSize;
-			public uint transientVbSize;
-			public uint transientIbSize;
+			public uint maxTransientVbSize;
+			public uint maxTansientIbSize;
+			public uint minUniformBufferSize;
 		}
 	
 		public RendererType rendererType;
@@ -2098,7 +2099,8 @@ public static partial class bgfx
 	
 	public unsafe struct Resolution
 	{
-		public TextureFormat format;
+		public TextureFormat formatColor;
+		public TextureFormat formatDepthStencil;
 		public uint width;
 		public uint height;
 		public uint reset;
@@ -2113,8 +2115,9 @@ public static partial class bgfx
 		{
 			public ushort maxEncoders;
 			public uint minResourceCbSize;
-			public uint transientVbSize;
-			public uint transientIbSize;
+			public uint maxTransientVbSize;
+			public uint maxTransientIbSize;
+			public uint minUniformBufferSize;
 		}
 	
 		public RendererType type;
@@ -4152,9 +4155,10 @@ public static partial class bgfx
 	///
 	/// <param name="_handle">Texture handle.</param>
 	/// <param name="_ptr">Native API pointer to texture.</param>
+	/// <param name="_layerIndex">Layer index for texture arrays (only implemented for D3D11).</param>
 	///
 	[DllImport(DllName, EntryPoint="bgfx_override_internal_texture_ptr", CallingConvention = CallingConvention.Cdecl)]
-	public static extern unsafe UIntPtr override_internal_texture_ptr(TextureHandle _handle, UIntPtr _ptr);
+	public static extern unsafe UIntPtr override_internal_texture_ptr(TextureHandle _handle, UIntPtr _ptr, ushort _layerIndex);
 	
 	/// <summary>
 	/// Override internal texture by creating new texture. Previously created

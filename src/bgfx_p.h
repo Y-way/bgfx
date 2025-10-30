@@ -92,13 +92,13 @@ namespace bgfx
 		}                                             \
 	BX_MACRO_BLOCK_END
 
-#define _BGFX_ASSERT(_condition, _format, ...)                                                                 \
-	BX_MACRO_BLOCK_BEGIN                                                                                       \
-		if (!BX_IGNORE_C4127(_condition)                                                                       \
-		&&  bx::assertFunction(bx::Location::current(), "ASSERT " #_condition " -> " _format, ##__VA_ARGS__) ) \
-		{                                                                                                      \
-			bgfx::fatal(__FILE__, uint16_t(__LINE__), bgfx::Fatal::DebugCheck, _format, ##__VA_ARGS__);        \
-		}                                                                                                      \
+#define _BGFX_ASSERT(_condition, _format, ...)                                                                    \
+	BX_MACRO_BLOCK_BEGIN                                                                                          \
+		if (!BX_IGNORE_C4127(_condition)                                                                          \
+		&&  bx::assertFunction(bx::Location::current(), 0, "ASSERT " #_condition " -> " _format, ##__VA_ARGS__) ) \
+		{                                                                                                         \
+			bgfx::fatal(__FILE__, uint16_t(__LINE__), bgfx::Fatal::DebugCheck, _format, ##__VA_ARGS__);           \
+		}                                                                                                         \
 	BX_MACRO_BLOCK_END
 
 #define BGFX_FATAL(_condition, _err, _format, ...)                             \
@@ -427,6 +427,7 @@ namespace bgfx
 		};
 	};
 
+	void* findModule(const char* _name);
 	bool windowsVersionIs(Condition::Enum _op, uint32_t _version, uint32_t _build = UINT32_MAX);
 
 	constexpr bool isShaderType(uint32_t _magic, char _type)
@@ -566,8 +567,6 @@ namespace bgfx
 	extern CallbackI* g_callback;
 	extern bx::AllocatorI* g_allocator;
 	extern Caps g_caps;
-
-	typedef bx::StringT<&g_allocator> String;
 
 	struct ProfilerScope
 	{
@@ -1479,7 +1478,7 @@ namespace bgfx
 	class UniformBuffer
 	{
 	public:
-		static UniformBuffer* create(uint32_t _size = 1<<20)
+		static UniformBuffer* create(uint32_t _size)
 		{
 			const uint32_t structSize = sizeof(UniformBuffer)-sizeof(UniformBuffer::m_buffer);
 
@@ -1494,13 +1493,16 @@ namespace bgfx
 			bx::free(g_allocator, _uniformBuffer);
 		}
 
-		static void update(UniformBuffer** _uniformBuffer, uint32_t _threshold = 64<<10, uint32_t _grow = 1<<20)
+		static void update(UniformBuffer** _uniformBuffer)
 		{
+			constexpr uint32_t kThreshold = BGFX_CONFIG_UNIFORM_BUFFER_RESIZE_THRESHOLD_SIZE;
+			constexpr uint32_t kIncrement = BGFX_CONFIG_UNIFORM_BUFFER_RESIZE_INCREMENT_SIZE;
+
 			UniformBuffer* uniformBuffer = *_uniformBuffer;
-			if (_threshold >= uniformBuffer->m_size - uniformBuffer->m_pos)
+			if (kThreshold >= uniformBuffer->m_size - uniformBuffer->m_pos)
 			{
 				const uint32_t structSize = sizeof(UniformBuffer)-sizeof(UniformBuffer::m_buffer);
-				uint32_t size = bx::alignUp(uniformBuffer->m_size + _grow, 16);
+				uint32_t size = bx::alignUp(uniformBuffer->m_size + kIncrement, 16);
 				void*    data = bx::realloc(g_allocator, uniformBuffer, size+structSize);
 				uniformBuffer = reinterpret_cast<UniformBuffer*>(data);
 				uniformBuffer->m_size = size;
@@ -1877,14 +1879,14 @@ namespace bgfx
 
 	struct IndexBuffer
 	{
-		String   m_name;
+		bx::FixedString64 m_name;
 		uint32_t m_size;
 		uint16_t m_flags;
 	};
 
 	struct VertexBuffer
 	{
-		String   m_name;
+		bx::FixedString64 m_name;
 		uint32_t m_size;
 		uint16_t m_stride;
 	};
@@ -1934,7 +1936,7 @@ namespace bgfx
 	struct ShaderRef
 	{
 		UniformHandle* m_uniforms;
-		String   m_name;
+		bx::FixedString64 m_name;
 		uint32_t m_hashIn;
 		uint32_t m_hashOut;
 		uint16_t m_num;
@@ -1950,7 +1952,7 @@ namespace bgfx
 
 	struct UniformRef
 	{
-		String            m_name;
+		bx::FixedString64 m_name;
 		UniformType::Enum m_type;
 		uint16_t          m_num;
 		int16_t           m_refCount;
@@ -2015,7 +2017,7 @@ namespace bgfx
 			return 0 < m_depth;
 		}
 
-		String   m_name;
+		bx::FixedString64 m_name;
 		void*    m_ptr;
 		uint64_t m_flags;
 		uint32_t m_storageSize;
@@ -2035,7 +2037,7 @@ namespace bgfx
 
 	struct FrameBufferRef
 	{
-		String m_name;
+		bx::FixedString64 m_name;
 		uint16_t m_width;
 		uint16_t m_height;
 
@@ -2192,7 +2194,7 @@ namespace bgfx
 
 				for (uint32_t ii = 0; ii < num; ++ii)
 				{
-					m_uniformBuffer[ii] = UniformBuffer::create();
+					m_uniformBuffer[ii] = UniformBuffer::create(g_caps.limits.minUniformBufferSize);
 				}
 			}
 
@@ -2248,7 +2250,7 @@ namespace bgfx
 		{
 			const uint32_t offset = bx::strideAlign(m_iboffset, _indexSize);
 			uint32_t iboffset = offset + _num*_indexSize;
-			iboffset = bx::min<uint32_t>(iboffset, g_caps.limits.transientIbSize);
+			iboffset = bx::min<uint32_t>(iboffset, g_caps.limits.maxTransientIbSize);
 			const uint32_t num = (iboffset-offset)/_indexSize;
 			return num;
 		}
@@ -2267,7 +2269,7 @@ namespace bgfx
 		{
 			uint32_t offset   = bx::strideAlign(m_vboffset, _stride);
 			uint32_t vboffset = offset + _num * _stride;
-			vboffset = bx::min<uint32_t>(vboffset, g_caps.limits.transientVbSize);
+			vboffset = bx::min<uint32_t>(vboffset, g_caps.limits.maxTransientVbSize);
 			uint32_t num = (vboffset-offset)/_stride;
 			return num;
 		}
@@ -3098,7 +3100,7 @@ namespace bgfx
 		virtual void updateTextureEnd() = 0;
 		virtual void readTexture(TextureHandle _handle, void* _data, uint8_t _mip) = 0;
 		virtual void resizeTexture(TextureHandle _handle, uint16_t _width, uint16_t _height, uint8_t _numMips, uint16_t _numLayers) = 0;
-		virtual void overrideInternal(TextureHandle _handle, uintptr_t _ptr) = 0;
+		virtual void overrideInternal(TextureHandle _handle, uintptr_t _ptr, uint16_t _layerIndex) = 0;
 		virtual uintptr_t getInternal(TextureHandle _handle) = 0;
 		virtual void destroyTexture(TextureHandle _handle) = 0;
 		virtual void createFrameBuffer(FrameBufferHandle _handle, uint8_t _num, const Attachment* _attachment) = 0;
@@ -3180,7 +3182,7 @@ namespace bgfx
 			return cmdbuf;
 		}
 
-		BGFX_API_FUNC(void reset(uint32_t _width, uint32_t _height, uint32_t _flags, TextureFormat::Enum _format) )
+		BGFX_API_FUNC(void reset(uint32_t _width, uint32_t _height, uint32_t _flags, TextureFormat::Enum _formatColor) )
 		{
 			BGFX_MUTEX_SCOPE(m_resourceApiLock);
 
@@ -3191,13 +3193,17 @@ namespace bgfx
 				, "Running in headless mode, resolution of non-existing backbuffer can't be larger than 0x0!"
 				);
 
-			const TextureFormat::Enum format = TextureFormat::Count != _format ? _format : m_init.resolution.format;
+			const TextureFormat::Enum formatColor = TextureFormat::Count != _formatColor
+				? _formatColor
+				: m_init.resolution.formatColor
+				;
 
 			if (!g_platformDataChangedSinceReset
-			&&  m_init.resolution.format == format
-			&&  m_init.resolution.width  == _width
-			&&  m_init.resolution.height == _height
-			&&  m_init.resolution.reset  == _flags)
+			&&  m_init.resolution.formatColor == formatColor
+			&&  m_init.resolution.width       == _width
+			&&  m_init.resolution.height      == _height
+			&&  m_init.resolution.reset       == _flags
+			   )
 			{
 				// Nothing changed, ignore request.
 				return;
@@ -3229,7 +3235,7 @@ namespace bgfx
 				, _width
 				, _height
 				);
-			m_init.resolution.format = format;
+			m_init.resolution.formatColor = formatColor;
 			m_init.resolution.width  = bx::clamp(_width,  1u, g_caps.limits.maxTextureSize);
 			m_init.resolution.height = bx::clamp(_height, 1u, g_caps.limits.maxTextureSize);
 			m_init.resolution.reset  = 0
@@ -4976,7 +4982,7 @@ namespace bgfx
 			BGFX_CHECK_HANDLE("getUniformInfo", m_uniformHandle, _handle);
 
 			UniformRef& uniform = m_uniformRef[_handle.idx];
-			bx::strCopy(_info.name, sizeof(_info.name), uniform.m_name.getPtr() );
+			bx::strCopy(_info.name, sizeof(_info.name), uniform.m_name);
 			_info.type = uniform.m_type;
 			_info.num  = uniform.m_num;
 		}
