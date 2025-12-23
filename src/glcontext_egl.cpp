@@ -35,29 +35,8 @@ namespace bgfx { namespace gl
 
 #if BGFX_USE_GL_DYNAMIC_LIB
 
-	typedef void (*EGLPROC)(void);
-
-	typedef EGLBoolean  (EGLAPIENTRY* PGNEGLBINDAPIPROC)(EGLenum api);
-	typedef EGLBoolean  (EGLAPIENTRY* PFNEGLCHOOSECONFIGPROC)(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs, EGLint config_size, EGLint* num_config);
-	typedef EGLContext  (EGLAPIENTRY* PFNEGLCREATECONTEXTPROC)(EGLDisplay dpy, EGLConfig config, EGLContext share_context, const EGLint* attrib_list);
-	typedef EGLSurface  (EGLAPIENTRY* PFNEGLCREATEPBUFFERSURFACEPROC)(EGLDisplay display, EGLConfig config, EGLint const* attrib_list);
-	typedef EGLSurface  (EGLAPIENTRY* PFNEGLCREATEWINDOWSURFACEPROC)(EGLDisplay dpy, EGLConfig config, EGLNativeWindowType win, const EGLint* attrib_list);
-	typedef EGLBoolean  (EGLAPIENTRY* PFNEGLDESTROYCONTEXTPROC)(EGLDisplay dpy, EGLContext ctx);
-	typedef EGLBoolean  (EGLAPIENTRY* PFNEGLDESTROYSURFACEPROC)(EGLDisplay dpy, EGLSurface surface);
-	typedef EGLContext  (EGLAPIENTRY* PFNEGLGETCURRENTCONTEXTPROC)(void);
-	typedef EGLSurface  (EGLAPIENTRY* PFNEGLGETCURRENTSURFACEPROC)(EGLint readdraw);
-	typedef EGLDisplay  (EGLAPIENTRY* PFNEGLGETDISPLAYPROC)(EGLNativeDisplayType display_id);
-	typedef EGLint      (EGLAPIENTRY* PFNEGLGETERRORPROC)(void);
-	typedef EGLPROC     (EGLAPIENTRY* PFNEGLGETPROCADDRESSPROC)(const char* procname);
-	typedef EGLBoolean  (EGLAPIENTRY* PFNEGLINITIALIZEPROC)(EGLDisplay dpy, EGLint* major, EGLint* minor);
-	typedef EGLBoolean  (EGLAPIENTRY* PFNEGLMAKECURRENTPROC)(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);
-	typedef EGLBoolean  (EGLAPIENTRY* PFNEGLSWAPBUFFERSPROC)(EGLDisplay dpy, EGLSurface surface);
-	typedef EGLBoolean  (EGLAPIENTRY* PFNEGLSWAPINTERVALPROC)(EGLDisplay dpy, EGLint interval);
-	typedef EGLBoolean  (EGLAPIENTRY* PFNEGLTERMINATEPROC)(EGLDisplay dpy);
-	typedef const char* (EGLAPIENTRY* PGNEGLQUERYSTRINGPROC)(EGLDisplay dpy, EGLint name);
-
 #define EGL_IMPORT                                                            \
-	EGL_IMPORT_FUNC(PGNEGLBINDAPIPROC,              eglBindAPI);              \
+	EGL_IMPORT_FUNC(PFNEGLBINDAPIPROC,              eglBindAPI);              \
 	EGL_IMPORT_FUNC(PFNEGLCHOOSECONFIGPROC,         eglChooseConfig);         \
 	EGL_IMPORT_FUNC(PFNEGLCREATECONTEXTPROC,        eglCreateContext);        \
 	EGL_IMPORT_FUNC(PFNEGLCREATEPBUFFERSURFACEPROC, eglCreatePbufferSurface); \
@@ -66,6 +45,7 @@ namespace bgfx { namespace gl
 	EGL_IMPORT_FUNC(PFNEGLDESTROYSURFACEPROC,       eglDestroySurface);       \
 	EGL_IMPORT_FUNC(PFNEGLGETCURRENTCONTEXTPROC,    eglGetCurrentContext);    \
 	EGL_IMPORT_FUNC(PFNEGLGETCURRENTSURFACEPROC,    eglGetCurrentSurface);    \
+	EGL_IMPORT_FUNC(PFNEGLGETPLATFORMDISPLAYPROC,   eglGetPlatformDisplay);   \
 	EGL_IMPORT_FUNC(PFNEGLGETDISPLAYPROC,           eglGetDisplay);           \
 	EGL_IMPORT_FUNC(PFNEGLGETERRORPROC,             eglGetError);             \
 	EGL_IMPORT_FUNC(PFNEGLGETPROCADDRESSPROC,       eglGetProcAddress);       \
@@ -75,7 +55,9 @@ namespace bgfx { namespace gl
 	EGL_IMPORT_FUNC(PFNEGLSWAPBUFFERSPROC,          eglSwapBuffers);          \
 	EGL_IMPORT_FUNC(PFNEGLSWAPINTERVALPROC,         eglSwapInterval);         \
 	EGL_IMPORT_FUNC(PFNEGLTERMINATEPROC,            eglTerminate);            \
-	EGL_IMPORT_FUNC(PGNEGLQUERYSTRINGPROC,          eglQueryString);          \
+	EGL_IMPORT_FUNC(PFNEGLQUERYSTRINGPROC,          eglQueryString);          \
+	EGL_IMPORT_FUNC(PFNEGLGETCONFIGSPROC,           eglGetConfigs);           \
+	EGL_IMPORT_FUNC(PFNEGLGETCONFIGATTRIBPROC,      eglGetConfigAttrib);      \
 
 #define EGL_IMPORT_FUNC(_proto, _func) _proto _func
 EGL_IMPORT
@@ -319,42 +301,172 @@ WL_EGL_IMPORT
 				;
 
 			const uint32_t msaa = (_resolution.reset & BGFX_RESET_MSAA_MASK)>>BGFX_RESET_MSAA_SHIFT;
-			const uint32_t msaaSamples = msaa == 0 ? 0 : 1<<msaa;
-			m_msaaContext = true;
+			uint32_t msaaSamples = 0 == msaa ? 0 : 1<<msaa;
 
 			const bool headless = EGLNativeWindowType(0) == nwh;
 
 			const bimg::ImageBlockInfo& colorBlockInfo       = bimg::getBlockInfo(bimg::TextureFormat::Enum(_resolution.formatColor) );
 			const bimg::ImageBlockInfo& depthStecilBlockInfo = bimg::getBlockInfo(bimg::TextureFormat::Enum(_resolution.formatDepthStencil) );
 
-			EGLint attrs[] =
+			EGLint numConfigs = 0;
+			EGLConfig configs[256];
+			eglGetConfigs(m_display, configs, BX_COUNTOF(configs), &numConfigs);
+
+			BX_TRACE("");
+			BX_TRACE("Number of EGL configs %d:", numConfigs);
+			BX_TRACE("\t  +---------------------------------------------------------------  Configuration number.");
+			BX_TRACE("\t  |                                          Renderable type bits:");
+			BX_TRACE("\t  |   +-----------------------------------------------------------   - EGL_OPENGL_BIT");
+			BX_TRACE("\t  |   |+----------------------------------------------------------   - EGL_OPENGL_ES2_BIT");
+			BX_TRACE("\t  |   ||+---------------------------------------------------------   - EGL_OPENGL_ES3_BIT_KHR");
+			BX_TRACE("\t  |   |||                                       Surface type bits:");
+			BX_TRACE("\t  |   |||    +----------------------------------------------------   - EGL_SWAP_BEHAVIOR_PRESERVED_BIT");
+			BX_TRACE("\t  |   |||    |+---------------------------------------------------   - EGL_MULTISAMPLE_RESOLVE_BOX_BIT");
+			BX_TRACE("\t  |   |||    ||+--------------------------------------------------   - EGL_PBUFFER_BIT");
+			BX_TRACE("\t  |   |||    |||+-------------------------------------------------   - EGL_PIXMAP_BIT");
+			BX_TRACE("\t  |   |||    ||||+------------------------------------------------   - EGL_WINDOW_BIT");
+			BX_TRACE("\t  |   |||    |||||                                                ");
+			BX_TRACE("\t  |   |||    |||||    +-------------------------------------------  R size.");
+			BX_TRACE("\t  |   |||    |||||    |   +---------------------------------------  G size.");
+			BX_TRACE("\t  |   |||    |||||    |   |   +-----------------------------------  B size.");
+			BX_TRACE("\t  |   |||    |||||    |   |   |   +-------------------------------  A size.");
+			BX_TRACE("\t  |   |||    |||||    |   |   |   |   +---------------------------  Depth size.");
+			BX_TRACE("\t  |   |||    |||||    |   |   |   |   |   +-----------------------  Stencil size.");
+			BX_TRACE("\t  |   |||    |||||    |   |   |   |   |   |                       ");
+			BX_TRACE("\t  |   |||    |||||    |   |   |   |   |   |   +-------------------  Min swap interval.");
+			BX_TRACE("\t  |   |||    |||||    |   |   |   |   |   |   |   +---------------  Max swap interval.");
+			BX_TRACE("\t  |   |||    |||||    |   |   |   |   |   |   |   |   +-----------  Samples");
+			BX_TRACE("\t  |   |||    |||||    |   |   |   |   |   |   |   |   |   +-------  Sample buffers.");
+			BX_TRACE("\t  |   |||    |||||    |   |   |   |   |   |   |   |   |   |       ");
+			BX_TRACE("\t  |   |||    |||||    |   |   |   |   |   |   |   |   |   |    +--  Config ID.");
+			BX_TRACE("\t  |   |||    |||||    |   |   |   |   |   |   |   |   |   |    |  ");
+
+			EGLint maxSamples = 0;
+
+			for (EGLint ii = 0; ii < numConfigs; ++ii)
 			{
-				EGL_RENDERABLE_TYPE, !!BGFX_CONFIG_RENDERER_OPENGL
+				char buffer[1024];
+				bx::StaticMemoryBlockWriter smbw(buffer, sizeof(buffer)-1);
+
+				int32_t total = 0;
+
+				total += bx::write(&smbw, bx::ErrorAssert{}, "%3d: ", ii);
+
+				EGLint renderableTypeBits;
+				eglGetConfigAttrib(m_display, configs[ii], EGL_RENDERABLE_TYPE, &renderableTypeBits);
+
+				total += bx::write(&smbw, bx::ErrorAssert{}, "[%c%c%c]"
+					, renderableTypeBits & EGL_OPENGL_BIT         ? 'x' : ' '
+					, renderableTypeBits & EGL_OPENGL_ES2_BIT     ? 'x' : ' '
+					, renderableTypeBits & EGL_OPENGL_ES3_BIT_KHR ? 'x' : ' '
+					);
+
+				EGLint surfaceTypeBits;
+				eglGetConfigAttrib(m_display, configs[ii], EGL_SURFACE_TYPE, &surfaceTypeBits);
+
+				total += bx::write(&smbw, bx::ErrorAssert{}, ", [%c%c%c%c%c]"
+					, surfaceTypeBits & EGL_MULTISAMPLE_RESOLVE_BOX_BIT ? 'x' : ' '
+					, surfaceTypeBits & EGL_PBUFFER_BIT                 ? 'x' : ' '
+					, surfaceTypeBits & EGL_PIXMAP_BIT                  ? 'x' : ' '
+					, surfaceTypeBits & EGL_SWAP_BEHAVIOR_PRESERVED_BIT ? 'x' : ' '
+					, surfaceTypeBits & EGL_WINDOW_BIT                  ? 'x' : ' '
+					);
+
+				EGLint samples;
+				eglGetConfigAttrib(m_display, configs[ii], EGL_SAMPLES, &samples);
+				maxSamples = bx::max(maxSamples, samples);
+
+#define GET_CONFIG_ATTRIB(_attrib, _format) \
+	{ \
+		EGLint attribValue; \
+		eglGetConfigAttrib(m_display, configs[ii], _attrib, &attribValue); \
+		total += bx::write(&smbw, bx::ErrorAssert{}, _format, attribValue); \
+	}
+
+				GET_CONFIG_ATTRIB(EGL_RED_SIZE,          ", %2d");
+				GET_CONFIG_ATTRIB(EGL_GREEN_SIZE,        ", %2d");
+				GET_CONFIG_ATTRIB(EGL_BLUE_SIZE,         ", %2d");
+				GET_CONFIG_ATTRIB(EGL_ALPHA_SIZE,        ", %2d");
+				GET_CONFIG_ATTRIB(EGL_DEPTH_SIZE,        ", %2d");
+				GET_CONFIG_ATTRIB(EGL_STENCIL_SIZE,      ", %2d");
+
+				GET_CONFIG_ATTRIB(EGL_MIN_SWAP_INTERVAL, ", %2d");
+				GET_CONFIG_ATTRIB(EGL_MAX_SWAP_INTERVAL, ", %2d");
+				GET_CONFIG_ATTRIB(EGL_SAMPLES,           ", %2d");
+				GET_CONFIG_ATTRIB(EGL_SAMPLE_BUFFERS,    ", %2d");
+
+				GET_CONFIG_ATTRIB(EGL_CONFIG_ID,         ", %3d");
+
+#undef GET_CONFIG_ATTRIB
+
+				buffer[total] = '\0';
+
+				BX_TRACE("\t%s", buffer);
+			}
+
+			for (uint32_t retry = 0; retry < 2; ++retry)
+			{
+				EGLint attrs[16*2 + 1];
+				uint32_t numAttrs = 0;
+
+				attrs[numAttrs++] = EGL_RENDERABLE_TYPE;
+				attrs[numAttrs++] = !!BGFX_CONFIG_RENDERER_OPENGL
 					? EGL_OPENGL_BIT
 					: (glVersion >= 30) ? EGL_OPENGL_ES3_BIT_KHR : EGL_OPENGL_ES2_BIT
-					,
+					;
 
-				EGL_SURFACE_TYPE, headless ? EGL_PBUFFER_BIT : EGL_WINDOW_BIT,
+				attrs[numAttrs++] = EGL_SURFACE_TYPE;
+				attrs[numAttrs++] = headless ? EGL_PBUFFER_BIT : EGL_WINDOW_BIT;
 
-				EGL_BLUE_SIZE,    colorBlockInfo.bBits,
-				EGL_GREEN_SIZE,   colorBlockInfo.gBits,
-				EGL_RED_SIZE,     colorBlockInfo.rBits,
-				EGL_ALPHA_SIZE,   colorBlockInfo.aBits,
-				EGL_DEPTH_SIZE,   depthStecilBlockInfo.depthBits,
-				EGL_STENCIL_SIZE, depthStecilBlockInfo.stencilBits,
+				attrs[numAttrs++] = EGL_BLUE_SIZE;
+				attrs[numAttrs++] = colorBlockInfo.bBits;
 
-				EGL_SAMPLES, (EGLint)msaaSamples,
+				attrs[numAttrs++] = EGL_GREEN_SIZE;
+				attrs[numAttrs++] = colorBlockInfo.gBits;
 
-				// Android Recordable surface
-				hasEglAndroidRecordable ? EGL_RECORDABLE_ANDROID : EGL_NONE,
-				hasEglAndroidRecordable ? 1                      : EGL_NONE,
+				attrs[numAttrs++] = EGL_RED_SIZE;
+				attrs[numAttrs++] = colorBlockInfo.rBits;
 
-				EGL_NONE
-			};
+				attrs[numAttrs++] = EGL_ALPHA_SIZE;
+				attrs[numAttrs++] = colorBlockInfo.aBits;
 
-			EGLint numConfig = 0;
-			success = eglChooseConfig(m_display, attrs, &m_config, 1, &numConfig);
-			BGFX_FATAL(success, Fatal::UnableToInitialize, "eglChooseConfig");
+				attrs[numAttrs++] = EGL_DEPTH_SIZE;
+				attrs[numAttrs++] = depthStecilBlockInfo.depthBits;
+
+				attrs[numAttrs++] = EGL_STENCIL_SIZE;
+				attrs[numAttrs++] = depthStecilBlockInfo.stencilBits;
+
+				attrs[numAttrs++] = EGL_SAMPLES;
+				attrs[numAttrs++] = (EGLint)bx::min(msaaSamples, maxSamples);
+
+				if (hasEglAndroidRecordable)
+				{
+					attrs[numAttrs++] = EGL_RECORDABLE_ANDROID;
+					attrs[numAttrs++] = 1;
+				}
+
+				attrs[numAttrs++] = EGL_NONE;
+
+				BX_ASSERT(numAttrs < BX_COUNTOF(attrs), "Out-of-bounds (numAttrs %d, max %d)."
+					, numAttrs
+					, BX_COUNTOF(attrs)
+					);
+
+				success = eglChooseConfig(m_display, attrs, &m_config, 1, &numConfigs);
+
+				if (!success
+				||  0 == numConfigs)
+				{
+					msaaSamples = 0;
+					continue;
+				}
+
+				break;
+			}
+
+			BGFX_FATAL(0 != numConfigs, Fatal::UnableToInitialize, "eglChooseConfig");
+
+			m_msaaContext = 1 < msaaSamples;
 
 #	if BX_PLATFORM_ANDROID
 			EGLint format;
@@ -427,6 +539,7 @@ WL_EGL_IMPORT
 					nwh = (EGLNativeWindowType) m_eglWindow;
 				}
 #	endif // BX_PLATFORM_LINUX
+
 				m_surface = eglCreateWindowSurface(m_display, m_config, nwh, NULL);
 			}
 
@@ -490,7 +603,7 @@ WL_EGL_IMPORT
 					break;
 				}
 
-				BX_TRACE("Failed to create EGL context with EGL_CONTEXT_FLAGS_KHR (%08x).", flags);
+				BX_TRACE("Failed to create EGL context with EGL_CONTEXT_FLAGS_KHR (%08x). Retrying without it!", flags);
 			}
 
 			BGFX_FATAL(m_context != EGL_NO_CONTEXT, Fatal::UnableToInitialize, "Failed to create context.");
@@ -654,13 +767,17 @@ WL_EGL_IMPORT
 
 #	if BX_PLATFORM_WINDOWS || BX_PLATFORM_LINUX
 #		if BX_PLATFORM_WINDOWS
-#			define LIBRARY_NAME "libGL.dll"
+#			if BGFX_CONFIG_RENDERER_OPENGL
+#				define LIBRARY_NAME "libGL.dll"
+#			else
+#				define LIBRARY_NAME "libGLESv2.dll"
+#			endif // BGFX_CONFIG_RENDERER_OPENGL
 #		elif BX_PLATFORM_LINUX
 #			if BGFX_CONFIG_RENDERER_OPENGL
 #				define LIBRARY_NAME "libGL.so.1"
 #			else
 #				define LIBRARY_NAME "libGLESv2.so.2"
-#			endif
+#			endif // BGFX_CONFIG_RENDERER_OPENGL
 #		endif
 
 		void* lib = bx::dlopen(LIBRARY_NAME);

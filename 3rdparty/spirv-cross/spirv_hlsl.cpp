@@ -27,7 +27,7 @@
 #include <algorithm>
 #include <assert.h>
 
-using namespace spv;
+using namespace SPIRV_CROSS_SPV_HEADER_NAMESPACE;
 using namespace SPIRV_CROSS_NAMESPACE;
 using namespace std;
 
@@ -491,9 +491,9 @@ string CompilerHLSL::type_to_glsl(const SPIRType &type, uint32_t id)
 		case SPIRType::Double:
 			return join("double", type.vecsize);
 		case SPIRType::Int64:
-			return join("i64vec", type.vecsize);
+			return join("int64_t", type.vecsize);
 		case SPIRType::UInt64:
-			return join("u64vec", type.vecsize);
+			return join("uint64_t", type.vecsize);
 		default:
 			return "???";
 		}
@@ -1139,7 +1139,7 @@ void CompilerHLSL::emit_interface_block_in_struct(const SPIRVariable &var, unord
 	}
 }
 
-std::string CompilerHLSL::builtin_to_glsl(spv::BuiltIn builtin, spv::StorageClass storage)
+std::string CompilerHLSL::builtin_to_glsl(BuiltIn builtin, StorageClass storage)
 {
 	switch (builtin)
 	{
@@ -1595,6 +1595,7 @@ void CompilerHLSL::replace_illegal_names()
 		"Texture3D", "TextureCube", "TextureCubeArray", "true", "typedef", "triangle",
 		"triangleadj", "TriangleStream", "uint", "uniform", "unorm", "unsigned",
 		"vector", "vertexfragment", "VertexShader", "vertices", "void", "volatile", "while",
+		"signed",
 	};
 
 	CompilerGLSL::replace_illegal_names(keywords);
@@ -1709,9 +1710,11 @@ void CompilerHLSL::emit_resources()
 		ir.for_each_typed_id<SPIRVariable>([&](uint32_t, SPIRVariable &var) {
 			auto &type = this->get<SPIRType>(var.basetype);
 
+			bool is_hidden = is_hidden_io_variable(var);
+
 			if (var.storage != StorageClassFunction && !var.remapped_variable && type.pointer &&
 			   (var.storage == StorageClassInput || var.storage == StorageClassOutput) && !is_builtin_variable(var) &&
-			   interface_variable_exists_in_entry_point(var.self))
+			   interface_variable_exists_in_entry_point(var.self) && !is_hidden)
 			{
 				// Builtin variables are handled separately.
 				emit_interface_block_globally(var);
@@ -1747,8 +1750,10 @@ void CompilerHLSL::emit_resources()
 		if (var.storage != StorageClassInput && var.storage != StorageClassOutput)
 			return;
 
+		bool is_hidden = is_hidden_io_variable(var);
+
 		if (!var.remapped_variable && type.pointer && !is_builtin_variable(var) &&
-		    interface_variable_exists_in_entry_point(var.self))
+		    interface_variable_exists_in_entry_point(var.self) && !is_hidden)
 		{
 			if (block)
 			{
@@ -3482,10 +3487,12 @@ void CompilerHLSL::emit_hlsl_entry_point()
 		if (var.storage != StorageClassInput)
 			return;
 
+		bool is_hidden = is_hidden_io_variable(var);
+
 		bool need_matrix_unroll = var.storage == StorageClassInput && execution.model == ExecutionModelVertex;
 
 		if (!var.remapped_variable && type.pointer && !is_builtin_variable(var) &&
-		    interface_variable_exists_in_entry_point(var.self))
+		    interface_variable_exists_in_entry_point(var.self) && !is_hidden)
 		{
 			if (block)
 			{
@@ -3760,19 +3767,19 @@ void CompilerHLSL::emit_texture_op(const Instruction &i, bool sparse)
 	uint32_t coord_components = 0;
 	switch (imgtype.image.dim)
 	{
-	case spv::Dim1D:
+	case Dim1D:
 		coord_components = 1;
 		break;
-	case spv::Dim2D:
+	case Dim2D:
 		coord_components = 2;
 		break;
-	case spv::Dim3D:
+	case Dim3D:
 		coord_components = 3;
 		break;
-	case spv::DimCube:
+	case DimCube:
 		coord_components = 3;
 		break;
-	case spv::DimBuffer:
+	case DimBuffer:
 		coord_components = 1;
 		break;
 	default:
@@ -3783,7 +3790,7 @@ void CompilerHLSL::emit_texture_op(const Instruction &i, bool sparse)
 	if (dref)
 		inherited_expressions.push_back(dref);
 
-	if (imgtype.image.arrayed)
+	if (imgtype.image.arrayed && op != OpImageQueryLod)
 		coord_components++;
 
 	uint32_t bias = 0;
@@ -4001,7 +4008,7 @@ void CompilerHLSL::emit_texture_op(const Instruction &i, bool sparse)
 	{
 		if (dref)
 		{
-			if (imgtype.image.dim != spv::Dim1D && imgtype.image.dim != spv::Dim2D)
+			if (imgtype.image.dim != Dim1D && imgtype.image.dim != Dim2D)
 			{
 				SPIRV_CROSS_THROW(
 				    "Depth comparison is only supported for 1D and 2D textures in HLSL shader model 2/3.");
@@ -5436,7 +5443,7 @@ void CompilerHLSL::emit_access_chain(const Instruction &instruction)
 	}
 }
 
-void CompilerHLSL::emit_atomic(const uint32_t *ops, uint32_t length, spv::Op op)
+void CompilerHLSL::emit_atomic(const uint32_t *ops, uint32_t length, Op op)
 {
 	const char *atomic_op = nullptr;
 
@@ -7113,10 +7120,34 @@ bool CompilerHLSL::is_hlsl_force_storage_buffer_as_uav(ID id) const
 		return true;
 	}
 
-	const uint32_t desc_set = get_decoration(id, spv::DecorationDescriptorSet);
-	const uint32_t binding = get_decoration(id, spv::DecorationBinding);
+	const uint32_t desc_set = get_decoration(id, DecorationDescriptorSet);
+	const uint32_t binding = get_decoration(id, DecorationBinding);
 
 	return (force_uav_buffer_bindings.find({ desc_set, binding }) != force_uav_buffer_bindings.end());
+}
+
+bool CompilerHLSL::is_hidden_io_variable(const SPIRVariable &var) const
+{
+	if (!is_hidden_variable(var))
+		return false;
+
+	// It is too risky to remove stage IO variables that are linkable since it affects link compatibility.
+	// For vertex inputs and fragment outputs, it's less of a concern and we want reflection data
+	// to match reality.
+
+	bool is_external_linkage =
+			(get_execution_model() == ExecutionModelVertex && var.storage == StorageClassInput) ||
+			(get_execution_model() == ExecutionModelFragment && var.storage == StorageClassOutput);
+
+	if (!is_external_linkage)
+		return false;
+
+	// Unused output I/O variables might still be required to implement framebuffer fetch.
+	if (var.storage == StorageClassOutput && !is_legacy() &&
+	    location_is_framebuffer_fetch(get_decoration(var.self, DecorationLocation)) != 0)
+		return false;
+
+	return true;
 }
 
 void CompilerHLSL::set_hlsl_force_storage_buffer_as_uav(uint32_t desc_set, uint32_t binding)
@@ -7134,6 +7165,7 @@ bool CompilerHLSL::is_user_type_structured(uint32_t id) const
 		const std::string &user_type = get_decoration_string(id, DecorationUserTypeGOOGLE);
 		return user_type.compare(0, 16, "structuredbuffer") == 0 ||
 		       user_type.compare(0, 18, "rwstructuredbuffer") == 0 ||
+		       user_type.compare(0, 35, "globallycoherent rwstructuredbuffer") == 0 ||
 		       user_type.compare(0, 33, "rasterizerorderedstructuredbuffer") == 0;
 	}
 	return false;
